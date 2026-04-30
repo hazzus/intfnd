@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>intfnd</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: monospace;
+      background: #f0f0f0;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* ── header ── */
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 20px;
+      height: 52px;
+      background: #fff;
+      border-bottom: 1px solid #ddd;
+      flex-shrink: 0;
+    }
+    .logo { font-size: 1.1rem; font-weight: bold; color: #222; }
+
+    #header-right {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .auth-hint { font-size: 0.8rem; color: #888; }
+    a.btn {
+      background: #fc4c02;
+      color: #fff;
+      padding: 7px 16px;
+      border-radius: 4px;
+      text-decoration: none;
+      font-size: 0.85rem;
+      font-weight: bold;
+    }
+    a.btn:hover { background: #e04400; }
+
+    .sync-text { font-size: 0.8rem; color: #555; }
+    .sync-text.done { color: #2a9d2a; }
+    .sync-bar-wrap { width: 140px; height: 8px; background: #ddd; border-radius: 4px; overflow: hidden; }
+    .sync-bar { height: 100%; background: #fc4c02; border-radius: 4px; transition: width 0.4s; }
+
+    /* ── main ── */
+    main {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    /* ── map panel ── */
+    #map-panel {
+      display: flex;
+      flex-direction: column;
+      flex: 0 0 62%;
+      border-right: 1px solid #ddd;
+    }
+    .map-hint {
+      padding: 8px 14px;
+      font-size: 0.78rem;
+      color: #666;
+      background: #fafafa;
+      border-bottom: 1px solid #eee;
+      flex-shrink: 0;
+    }
+    #map { flex: 1; }
+
+    /* ── form panel ── */
+    #form-panel {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      padding: 20px 18px;
+      overflow-y: auto;
+      gap: 14px;
+    }
+
+    .field { display: flex; flex-direction: column; gap: 4px; }
+    label { font-size: 0.8rem; color: #555; }
+    input[type=number] {
+      padding: 8px 10px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 0.9rem;
+      background: #fff;
+      width: 100%;
+    }
+    input[type=number]:focus { outline: none; border-color: #fc4c02; }
+
+    #find-btn {
+      padding: 10px;
+      background: #fc4c02;
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 0.95rem;
+      font-weight: bold;
+      cursor: pointer;
+      width: 100%;
+    }
+    #find-btn:hover:not(:disabled) { background: #e04400; }
+    #find-btn:disabled { opacity: 0.6; cursor: default; }
+
+    #warnings { display: flex; flex-direction: column; gap: 4px; }
+    .warn { font-size: 0.8rem; color: #c0392b; }
+
+    /* ── results ── */
+    #results { display: flex; flex-direction: column; gap: 10px; margin-top: 4px; }
+    .result-card {
+      background: #fff;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      padding: 10px 12px;
+    }
+    .result-name {
+      font-size: 0.9rem;
+      font-weight: bold;
+      color: #fc4c02;
+      text-decoration: none;
+    }
+    .result-name:hover { text-decoration: underline; }
+    .result-meta { font-size: 0.78rem; color: #666; margin-top: 4px; }
+    .no-results { font-size: 0.85rem; color: #888; }
+  </style>
+</head>
+<body>
+
+<header>
+  <span class="logo">intfnd</span>
+  <div id="header-right"></div>
+</header>
+
+<main>
+  <div id="map-panel">
+    <p class="map-hint">Double-click to place a pin (2 km radius) &nbsp;·&nbsp; double-click and drag to set a custom radius</p>
+    <div id="map"></div>
+  </div>
+
+  <div id="form-panel">
+    <div class="field">
+      <label for="weight">System weight (kg)</label>
+      <input id="weight" type="number" min="1" step="0.1" placeholder="83">
+    </div>
+    <div class="field">
+      <label for="power">Power (W)</label>
+      <input id="power" type="number" min="1" placeholder="280">
+    </div>
+    <div class="field">
+      <label for="interval">Interval (s)</label>
+      <input id="interval" type="number" min="1" placeholder="300">
+    </div>
+    <div id="warnings"></div>
+    <button id="find-btn">Find</button>
+    <div id="results"></div>
+  </div>
+</main>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+  // ── map setup ──────────────────────────────────────────────
+  const map = L.map('map');
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap contributors',
+    maxZoom: 19,
+  }).addTo(map);
+
+  navigator.geolocation
+    ? navigator.geolocation.getCurrentPosition(
+        p => map.setView([p.coords.latitude, p.coords.longitude], 13),
+        () => map.setView([51.505, -0.09], 13)
+      )
+    : map.setView([51.505, -0.09], 13);
+
+  // ── pin + circle ───────────────────────────────────────────
+  let pinLatLng = null;
+  let circleRadius = 2000;
+  let marker = null;
+  let circle = null;
+  let isDragging = false;
+  let dragStart = null;
+  let hoverMarker = null;
+
+  function placePin(latlng, radius) {
+    if (marker) marker.remove();
+    if (circle) circle.remove();
+    pinLatLng = latlng;
+    circleRadius = radius;
+    marker = L.marker(latlng).addTo(map);
+    circle = L.circle(latlng, {
+      radius,
+      color: '#fc4c02',
+      weight: 2,
+      fillColor: '#fc4c02',
+      fillOpacity: 0.08,
+    }).addTo(map);
+  }
+
+  map.doubleClickZoom.disable();
+
+  map.on('mousedown', e => {
+    if (e.originalEvent.detail < 2) return;
+    isDragging = true;
+    dragStart = e.latlng;
+    map.dragging.disable();
+    placePin(dragStart, 2000);
+  });
+
+  map.on('mousemove', e => {
+    if (!isDragging || !dragStart) return;
+    const r = dragStart.distanceTo(e.latlng);
+    if (r > 100 && circle) circle.setRadius(r);
+  });
+
+  map.on('mouseup', e => {
+    if (!isDragging) return;
+    isDragging = false;
+    map.dragging.enable();
+    const r = dragStart.distanceTo(e.latlng);
+    if (r > 100) {
+      circleRadius = r;
+      if (circle) circle.setRadius(r);
+    } else {
+      circleRadius = 2000;
+      if (circle) circle.setRadius(2000);
+    }
+  });
+
+  // ── auth / sync status ─────────────────────────────────────
+  async function checkStatus() {
+    try {
+      const res = await fetch('/api/sync/status');
+      if (res.status === 401) { showAuthButton(); return; }
+      const data = await res.json();
+      showSyncProgress(data);
+      if (data.total === 0 || data.done < data.total) setTimeout(checkStatus, 2000);
+    } catch { showAuthButton(); }
+  }
+
+  function showAuthButton() {
+    document.getElementById('header-right').innerHTML = `
+      <span class="auth-hint">help us gather more segments, connect your account</span>
+      <a class="btn" href="/auth/strava">Connect with Strava</a>
+    `;
+  }
+
+  function showSyncProgress({ total, done }) {
+    const el = document.getElementById('header-right');
+    if (total === 0 && done === 0) {
+      el.innerHTML = '<span class="sync-text">Syncing activities…</span>';
+      return;
+    }
+    if (total > 0 && done >= total) {
+      el.innerHTML = '<span class="sync-text done">✓ Activities synced</span>';
+      return;
+    }
+    const pct = Math.round(done / total * 100);
+    el.innerHTML = `
+      <span class="sync-text">Activities: ${done} / ${total}</span>
+      <div class="sync-bar-wrap"><div class="sync-bar" style="width:${pct}%"></div></div>
+    `;
+  }
+
+  // ── search ─────────────────────────────────────────────────
+  function formatTime(s) {
+    const m = Math.floor(s / 60);
+    const sec = Math.round(s % 60);
+    return `${m}:${sec.toString().padStart(2, '0')}`;
+  }
+
+  document.getElementById('find-btn').addEventListener('click', async () => {
+    const weight   = parseFloat(document.getElementById('weight').value);
+    const power    = parseFloat(document.getElementById('power').value);
+    const interval = parseFloat(document.getElementById('interval').value);
+
+    const errors = [];
+    if (!pinLatLng)            errors.push('Place a pin on the map first');
+    if (!(weight > 0))         errors.push('Enter a valid system weight');
+    if (!(power > 0))          errors.push('Enter a valid power');
+    if (!(interval > 0))       errors.push('Enter a valid interval time');
+
+    const warnEl = document.getElementById('warnings');
+    if (errors.length) {
+      warnEl.innerHTML = errors.map(e => `<p class="warn">⚠ ${e}</p>`).join('');
+      return;
+    }
+    warnEl.innerHTML = '';
+
+    const btn = document.getElementById('find-btn');
+    btn.disabled = true;
+    btn.textContent = 'Searching…';
+
+    try {
+      const res = await fetch('/api/search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          lat: pinLatLng.lat,
+          lng: pinLatLng.lng,
+          radius_m: circleRadius,
+          weight_kg: weight,
+          power_w: power,
+          interval_s: interval,
+        }),
+      });
+
+      const resultsEl = document.getElementById('results');
+
+      if (res.status === 401) {
+        resultsEl.innerHTML = '<p class="warn">⚠ Not logged in.</p>';
+        return;
+      }
+
+      const segments = await res.json();
+      if (!segments.length) {
+        resultsEl.innerHTML = '<p class="no-results">No matching segments in this area.</p>';
+        return;
+      }
+
+      resultsEl.innerHTML = segments.map((s, i) => `
+        <div class="result-card" data-idx="${i}">
+          <a class="result-name" href="https://www.strava.com/segments/${s.strava_id}" target="_blank">${s.name}</a>
+          <div class="result-meta">
+            ${(s.distance_m / 1000).toFixed(2)} km &nbsp;·&nbsp;
+            ${s.average_grade.toFixed(1)}% &nbsp;·&nbsp;
+            ${formatTime(s.estimated_time_s)} &nbsp;·&nbsp;
+            +${Math.round(s.delta_s)}s over target
+          </div>
+        </div>
+      `).join('');
+
+      resultsEl.querySelectorAll('.result-card').forEach(card => {
+        const s = segments[+card.dataset.idx];
+        card.addEventListener('mouseenter', () => {
+          if (hoverMarker) hoverMarker.remove();
+          hoverMarker = L.circleMarker([s.start_lat, s.start_lng], {
+            radius: 7,
+            color: '#fc4c02',
+            fillColor: '#fc4c02',
+            fillOpacity: 0.9,
+            weight: 2,
+          }).addTo(map);
+        });
+        card.addEventListener('mouseleave', () => {
+          if (hoverMarker) { hoverMarker.remove(); hoverMarker = null; }
+        });
+      });
+    } catch {
+      document.getElementById('results').innerHTML = '<p class="warn">⚠ Request failed.</p>';
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Find';
+    }
+  });
+
+  checkStatus();
+</script>
+</body>
+</html>
