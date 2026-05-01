@@ -1,5 +1,6 @@
 mod config;
 mod db;
+mod enrich;
 mod models;
 mod physics;
 mod routes;
@@ -16,6 +17,7 @@ use axum::{
 use axum_extra::extract::cookie::Key;
 
 use config::Config;
+use strava::rate_limiter::RateLimiter;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -23,6 +25,7 @@ pub struct AppState {
     pub config: Arc<Config>,
     pub cookie_key: Key,
     pub sync_jobs: Arc<Mutex<HashSet<i64>>>,
+    pub rate_limiter: Arc<RateLimiter>,
 }
 
 impl axum::extract::FromRef<AppState> for Key {
@@ -53,7 +56,10 @@ async fn main() -> anyhow::Result<()> {
         config,
         cookie_key,
         sync_jobs: Arc::new(Mutex::new(HashSet::new())),
+        rate_limiter: Arc::new(RateLimiter::new()),
     };
+
+    enrich::spawn_enrich_task(state.pool.clone(), Arc::clone(&state.config), Arc::clone(&state.rate_limiter));
 
     let app = Router::new()
         .route("/", get(routes::pages::index))

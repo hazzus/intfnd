@@ -9,6 +9,7 @@ use tracing::{error, info, warn};
 use crate::config::Config;
 use crate::models::User;
 use crate::strava::client::StravaClient;
+use crate::strava::rate_limiter::RateLimiter;
 use crate::strava::types::SegmentEffort;
 
 pub fn spawn_sync_task(
@@ -16,17 +17,18 @@ pub fn spawn_sync_task(
     user_id: i64,
     config: Arc<Config>,
     sync_jobs: Arc<Mutex<HashSet<i64>>>,
+    rate_limiter: Arc<RateLimiter>,
 ) {
     tokio::spawn(async move {
-        if let Err(e) = run_sync(&pool, user_id, config).await {
+        if let Err(e) = run_sync(&pool, user_id, config, rate_limiter).await {
             error!(user_id, err = ?e, "sync failed");
         }
         sync_jobs.lock().unwrap().remove(&user_id);
     });
 }
 
-async fn run_sync(pool: &PgPool, user_id: i64, config: Arc<Config>) -> Result<()> {
-    let strava = StravaClient::new(config);
+async fn run_sync(pool: &PgPool, user_id: i64, config: Arc<Config>, rate_limiter: Arc<RateLimiter>) -> Result<()> {
+    let strava = StravaClient::new(config, rate_limiter);
     let user = load_user(pool, user_id).await?;
     let access_token = ensure_fresh_token(pool, &strava, &user).await?;
     let after = user.last_synced_at.map(|t| t.timestamp());

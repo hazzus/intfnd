@@ -48,3 +48,9 @@ pub struct SegmentSummary {
 pub struct SegmentMap {
     pub polyline: Option<String>,
 }
+
+#[derive(Debug, Deserialize)]
+pub struct DetailedSegment {
+    pub star_count: i32,
+    pub map: Option<SegmentMap>,
+}

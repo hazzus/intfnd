@@ -32,7 +32,7 @@ pub async fn callback(
     Query(params): Query<CallbackParams>,
 ) -> Response {
     info!("oauth callback received");
-    let strava = StravaClient::new(Arc::clone(&state.config));
+    let strava = StravaClient::new(Arc::clone(&state.config), Arc::clone(&state.rate_limiter));
 
     info!("exchanging token with strava");
     let token = match strava.exchange_token(&params.code).await {
@@ -87,6 +87,7 @@ pub async fn callback(
             athlete.id,
             Arc::clone(&state.config),
             Arc::clone(&state.sync_jobs),
+            Arc::clone(&state.rate_limiter),
         );
     } else {
         info!(athlete_id = athlete.id, "sync already running, skipping");

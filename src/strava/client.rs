@@ -1,27 +1,29 @@
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use chrono::{Timelike, Utc};
-use reqwest::{Client, Response, StatusCode};
+use reqwest::{Client, RequestBuilder, Response, StatusCode};
 use serde::de::DeserializeOwned;
-use tokio::time::{sleep, Duration};
+use tokio::time::sleep;
 use tracing::{info, warn};
 
 use crate::config::Config;
-use super::types::{ActivitySummary, DetailedActivity, TokenResponse};
+use super::rate_limiter::RateLimiter;
+use super::types::{ActivitySummary, DetailedActivity, DetailedSegment, TokenResponse};
 
 const STRAVA_API: &str = "https://www.strava.com/api/v3";
 const STRAVA_AUTH: &str = "https://www.strava.com/oauth/token";
+const MAX_RETRIES: u32 = 3;
 
 #[derive(Clone)]
 pub struct StravaClient {
     http: Client,
     config: Arc<Config>,
+    rate_limiter: Arc<RateLimiter>,
 }
 
 impl StravaClient {
-    pub fn new(config: Arc<Config>) -> Self {
-        Self { http: Client::new(), config }
+    pub fn new(config: Arc<Config>, rate_limiter: Arc<RateLimiter>) -> Self {
+        Self { http: Client::new(), config, rate_limiter }
     }
 
     pub async fn exchange_token(&self, code: &str) -> Result<TokenResponse> {
@@ -58,78 +60,79 @@ impl StravaClient {
         page: u32,
         after: Option<i64>,
     ) -> Result<Vec<ActivitySummary>> {
-        let mut req = self.http
-            .get(format!("{STRAVA_API}/athlete/activities"))
-            .bearer_auth(access_token)
-            .query(&[("per_page", "200"), ("page", &page.to_string())]);
-        if let Some(ts) = after {
-            req = req.query(&[("after", ts)]);
-        }
-        let response = req.send().await.context("list activities request")?;
-        handle_response(response).await.context("list activities")
+        let http = self.http.clone();
+        let token = access_token.to_owned();
+        self.api_request(move || {
+            let mut req = http
+                .get(format!("{STRAVA_API}/athlete/activities"))
+                .bearer_auth(&token)
+                .query(&[("per_page", "200"), ("page", &page.to_string())]);
+            if let Some(ts) = after {
+                req = req.query(&[("after", ts)]);
+            }
+            req
+        })
+        .await
+        .context("list activities")
+    }
+
+    pub async fn get_segment(&self, access_token: &str, id: i64) -> Result<DetailedSegment> {
+        let http = self.http.clone();
+        let token = access_token.to_owned();
+        self.api_request(move || {
+            http.get(format!("{STRAVA_API}/segments/{id}"))
+                .bearer_auth(&token)
+        })
+        .await
+        .context("get segment")
     }
 
     pub async fn get_activity(&self, access_token: &str, id: i64) -> Result<DetailedActivity> {
-        let response = self.http
-            .get(format!("{STRAVA_API}/activities/{id}"))
-            .bearer_auth(access_token)
-            .query(&[("include_all_efforts", "true")])
-            .send().await.context("get activity request")?;
-        handle_response(response).await.context("get activity")
+        let http = self.http.clone();
+        let token = access_token.to_owned();
+        self.api_request(move || {
+            http.get(format!("{STRAVA_API}/activities/{id}"))
+                .bearer_auth(&token)
+                .query(&[("include_all_efforts", "true")])
+        })
+        .await
+        .context("get activity")
+    }
+
+    async fn api_request<T, F>(&self, build: F) -> Result<T>
+    where
+        T: DeserializeOwned,
+        F: Fn() -> RequestBuilder,
+    {
+        for attempt in 0..MAX_RETRIES {
+            while let Some(wait) = self.rate_limiter.try_acquire() {
+                warn!(wait_secs = wait.as_secs(), "rate limit exhausted, sleeping until next window");
+                sleep(wait).await;
+            }
+
+            let resp = build().send().await?;
+
+            if let Some((used, limit)) = parse_rate_headers(&resp) {
+                info!(used, limit, "rate limit status");
+                self.rate_limiter.update_from_headers(used, limit);
+            }
+
+            if resp.status() == StatusCode::TOO_MANY_REQUESTS {
+                let wait = self.rate_limiter.mark_exhausted();
+                warn!(wait_secs = wait.as_secs(), attempt, "Strava 429, sleeping until next window");
+                sleep(wait).await;
+                continue;
+            }
+
+            return Ok(resp.error_for_status()?.json::<T>().await?);
+        }
+        Err(anyhow::anyhow!("rate limited after {MAX_RETRIES} retries"))
     }
 }
 
-async fn handle_response<T: DeserializeOwned>(response: Response) -> Result<T> {
-    if response.status() == StatusCode::TOO_MANY_REQUESTS {
-        let wait = secs_until_next_window();
-        warn!(wait_secs = wait, "Strava 429: sleeping until next rate limit window");
-        sleep(Duration::from_secs(wait)).await;
-        return Err(anyhow::anyhow!("rate limited by Strava (429)"));
-    }
-
-    let delay = rate_limit_delay(&response);
-    let body = response.error_for_status()?.json::<T>().await?;
-    sleep(delay).await;
-    Ok(body)
-}
-
-fn rate_limit_delay(response: &Response) -> Duration {
-    let parse_header = |name: &str| -> Option<(u32, u32)> {
-        let val = response.headers().get(name)?.to_str().ok()?;
-        let mut parts = val.split(',');
-        let a: u32 = parts.next()?.trim().parse().ok()?;
-        let b: u32 = parts.next()?.trim().parse().ok()?;
-        Some((a, b))
+fn parse_rate_headers(resp: &Response) -> Option<(u32, u32)> {
+    let first = |name: &str| -> Option<u32> {
+        resp.headers().get(name)?.to_str().ok()?.split(',').next()?.trim().parse().ok()
     };
-
-    let Some((fifteen_limit, _)) = parse_header("X-RateLimit-Limit") else {
-        return Duration::from_millis(200);
-    };
-    let Some((fifteen_used, _)) = parse_header("X-RateLimit-Usage") else {
-        return Duration::from_millis(200);
-    };
-
-    let remaining = fifteen_limit.saturating_sub(fifteen_used);
-    info!(fifteen_used, fifteen_limit, remaining, "rate limit status");
-
-    if remaining == 0 {
-        let wait = secs_until_next_window();
-        warn!(wait_secs = wait, "rate limit exhausted, sleeping until next window");
-        return Duration::from_secs(wait);
-    }
-
-    // spread remaining quota evenly across the rest of the window
-    let window_secs = secs_until_next_window();
-    let delay_ms = (window_secs * 1000) / remaining as u64;
-    Duration::from_millis(delay_ms.max(100))
-}
-
-fn secs_until_next_window() -> u64 {
-    let now = Utc::now();
-    let mins = now.minute() as u64;
-    let secs = now.second() as u64;
-    let secs_past_boundary = (mins % 15) * 60 + secs;
-    let window_secs = 15 * 60u64;
-    // +5s buffer so we don't hit the boundary exactly
-    window_secs - secs_past_boundary + 5
+    Some((first("X-RateLimit-Usage")?, first("X-RateLimit-Limit")?))
 }
