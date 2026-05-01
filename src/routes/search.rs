@@ -48,7 +48,7 @@ pub async fn execute_search(
     )
     .bind(req.lng)
     .bind(req.lat)
-    .bind(req.radius_m)
+    .bind(req.radius_m.min(50_000.0))
     .fetch_all(pool)
     .await?;
 
@@ -62,7 +62,7 @@ pub async fn execute_search(
                 req.weight_kg,
                 req.power_w,
             )?;
-            if t < req.interval_s - margin {
+            if t < req.interval_s - margin || t > req.interval_s * 3.0 {
                 return None;
             }
             Some(SearchResult {

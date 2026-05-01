@@ -67,7 +67,7 @@ const MAX_RADIUS_M: f64 = 50_000.0;
 #[derive(Clone)]
 pub struct IntfndServer {
     pool: PgPool,
-    #[allow(dead_code)]
+    #[expect(dead_code, reason = "held for rmcp #[tool_router] macro; used by rmcp at runtime")]
     tool_router: ToolRouter<IntfndServer>,
 }
 
@@ -81,8 +81,8 @@ impl IntfndServer {
     }
 
     #[tool(description = "Find Strava segments matching a target power output and duration. \
-        Segments are ranked by how closely the estimated ride time (at constant power) matches \
-        the target interval, then by popularity. \
+        Segments are ranked by a blend of time accuracy (how closely the estimated ride time \
+        at constant power matches the target interval) and popularity (Strava star count). \
         Provide lat/lng coordinates, or use list_known_locations to get coordinates for named \
         local places. Call list_known_locations first — do not guess coordinates for named locations.")]
     async fn find_segments(
@@ -104,8 +104,12 @@ impl IntfndServer {
             }
         }
 
+        if !params.radius_m.is_finite() || params.radius_m <= 0.0 {
+            return Err(invalid_params("radius_m must be a positive finite number"));
+        }
+
         let weight_kg = params.weight_kg.unwrap_or(78.0);
-        let limit = params.limit.unwrap_or(5).min(20);
+        let limit = params.limit.unwrap_or(5).clamp(1, 20);
         let radius_m = params.radius_m.min(MAX_RADIUS_M);
 
         let req = SearchRequest {
@@ -131,12 +135,13 @@ impl IntfndServer {
         }
 
         let mut output = format!(
-            "Found {} segment(s) near ({:.4}, {:.4}) for {:.0}W / {:.0}s:\n\n",
+            "Found {} segment(s) near ({:.4}, {:.4}) for {:.0}W / {:.0}s / {:.0}kg:\n\n",
             results.len(),
             params.lat,
             params.lng,
             params.power_w,
             params.interval_s,
+            weight_kg,
         );
         for (i, r) in results.iter().enumerate() {
             let delta_abs = r.delta_s.abs();
