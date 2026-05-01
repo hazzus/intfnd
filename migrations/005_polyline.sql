@@ -1,0 +1,3 @@
+ALTER TABLE segments DROP COLUMN elevation_gain;
+ALTER TABLE segments ADD COLUMN polyline TEXT;
+ALTER TABLE segments ADD COLUMN star_count INTEGER NOT NULL DEFAULT 0;

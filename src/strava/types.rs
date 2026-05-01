@@ -39,5 +39,12 @@ pub struct SegmentSummary {
     pub average_grade: f64,
     #[serde(default)]
     pub start_latlng: Vec<f64>,
-    pub total_elevation_gain: Option<f64>,
+    pub map: Option<SegmentMap>,
+    #[serde(default)]
+    pub private: bool,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SegmentMap {
+    pub polyline: Option<String>,
 }

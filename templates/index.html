@@ -145,25 +145,25 @@
 
 <main>
   <div id="map-panel">
-    <p class="map-hint">Double-click to place a pin (2 km radius) &nbsp;·&nbsp; double-click and drag to set a custom radius</p>
+    <p class="map-hint">double-click to place a pin (2 km radius) &nbsp;·&nbsp; double-click and drag to set a custom radius</p>
     <div id="map"></div>
   </div>
 
   <div id="form-panel">
     <div class="field">
-      <label for="weight">System weight (kg)</label>
+      <label for="weight">system weight (kg)</label>
       <input id="weight" type="number" min="1" step="0.1" placeholder="83">
     </div>
     <div class="field">
-      <label for="power">Power (W)</label>
+      <label for="power">power (W)</label>
       <input id="power" type="number" min="1" placeholder="280">
     </div>
     <div class="field">
-      <label for="interval">Interval (s)</label>
+      <label for="interval">interval (s)</label>
       <input id="interval" type="number" min="1" placeholder="300">
     </div>
     <div id="warnings"></div>
-    <button id="find-btn">Find</button>
+    <button id="find-btn">find</button>
     <div id="results"></div>
   </div>
 </main>
@@ -252,23 +252,23 @@
   function showAuthButton() {
     document.getElementById('header-right').innerHTML = `
       <span class="auth-hint">help us gather more segments, connect your account</span>
-      <a class="btn" href="/auth/strava">Connect with Strava</a>
+      <a class="btn" href="/auth/strava">connect with Strava</a>
     `;
   }
 
   function showSyncProgress({ total, done }) {
     const el = document.getElementById('header-right');
     if (total === 0 && done === 0) {
-      el.innerHTML = '<span class="sync-text">Syncing activities…</span>';
+      el.innerHTML = '<span class="sync-text">syncing activities…</span>';
       return;
     }
     if (total > 0 && done >= total) {
-      el.innerHTML = '<span class="sync-text done">✓ Activities synced</span>';
+      el.innerHTML = '<span class="sync-text done">✓ activities synced</span>';
       return;
     }
     const pct = Math.round(done / total * 100);
     el.innerHTML = `
-      <span class="sync-text">Activities: ${done} / ${total}</span>
+      <span class="sync-text">activities: ${done} / ${total}</span>
       <div class="sync-bar-wrap"><div class="sync-bar" style="width:${pct}%"></div></div>
     `;
   }
@@ -329,17 +329,22 @@
         return;
       }
 
-      resultsEl.innerHTML = segments.map((s, i) => `
+      resultsEl.innerHTML = segments.map((s, i) => {
+        const delta = Math.round(s.delta_s);
+        const deltaStr = (delta >= 0 ? '+' : '') + delta + 's';
+        return `
         <div class="result-card" data-idx="${i}">
           <a class="result-name" href="https://www.strava.com/segments/${s.strava_id}" target="_blank">${s.name}</a>
           <div class="result-meta">
             ${(s.distance_m / 1000).toFixed(2)} km &nbsp;·&nbsp;
             ${s.average_grade.toFixed(1)}% &nbsp;·&nbsp;
             ${formatTime(s.estimated_time_s)} &nbsp;·&nbsp;
-            +${Math.round(s.delta_s)}s over target
+            ${deltaStr} &nbsp;·&nbsp;
+            ★ ${s.star_count}
           </div>
         </div>
-      `).join('');
+        `;
+      }).join('');
 
       resultsEl.querySelectorAll('.result-card').forEach(card => {
         const s = segments[+card.dataset.idx];

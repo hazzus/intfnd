@@ -22,5 +22,6 @@ pub struct Segment {
     pub average_grade: f64,
     pub start_lat: f64,
     pub start_lng: f64,
-    pub elevation_gain: f64,
+    pub polyline: Option<String>,
+    pub star_count: i32,
 }

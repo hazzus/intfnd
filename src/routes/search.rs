@@ -30,6 +30,8 @@ pub struct SearchResult {
     pub delta_s: f64,
     pub start_lat: f64,
     pub start_lng: f64,
+    pub polyline: Option<String>,
+    pub star_count: i32,
 }
 
 pub async fn search(
@@ -42,7 +44,7 @@ pub async fn search(
     }
 
     let segments = match sqlx::query_as::<_, Segment>(
-        "SELECT strava_id, name, distance, average_grade, start_lat, start_lng, elevation_gain
+        "SELECT strava_id, name, distance, average_grade, start_lat, start_lng, polyline, star_count
          FROM segments
          WHERE ST_DWithin(
              ST_MakePoint(start_lng, start_lat)::geography,
@@ -72,7 +74,8 @@ pub async fn search(
                 req.weight_kg,
                 req.power_w,
             )?;
-            if t < req.interval_s {
+            let margin = req.interval_s * 0.1;
+            if t < req.interval_s - margin {
                 return None;
             }
             Some(SearchResult {
@@ -84,6 +87,8 @@ pub async fn search(
                 delta_s: t - req.interval_s,
                 start_lat: seg.start_lat,
                 start_lng: seg.start_lng,
+                polyline: seg.polyline,
+                star_count: seg.star_count,
             })
         })
         .collect();
@@ -92,6 +97,7 @@ pub async fn search(
         a.delta_s
             .partial_cmp(&b.delta_s)
             .unwrap_or(std::cmp::Ordering::Equal)
+            .then(b.star_count.cmp(&a.star_count))
     });
 
     Json(results).into_response()

@@ -84,11 +84,12 @@ async fn run_sync(pool: &PgPool, user_id: i64, config: Arc<Config>) -> Result<()
 async fn upsert_segments(pool: &PgPool, efforts: &[SegmentEffort]) -> Result<()> {
     for effort in efforts {
         let seg = &effort.segment;
-        if seg.start_latlng.len() < 2 {
+        if seg.private || seg.start_latlng.len() < 2 {
             continue;
         }
+        let polyline = seg.map.as_ref().and_then(|m| m.polyline.clone());
         sqlx::query(
-            "INSERT INTO segments (strava_id, name, distance, average_grade, start_lat, start_lng, elevation_gain)
+            "INSERT INTO segments (strava_id, name, distance, average_grade, start_lat, start_lng, polyline)
              VALUES ($1, $2, $3, $4, $5, $6, $7)
              ON CONFLICT (strava_id) DO NOTHING",
         )
@@ -98,7 +99,7 @@ async fn upsert_segments(pool: &PgPool, efforts: &[SegmentEffort]) -> Result<()>
         .bind(seg.average_grade)
         .bind(seg.start_latlng[0])
         .bind(seg.start_latlng[1])
-        .bind(seg.total_elevation_gain.unwrap_or(0.0))
+        .bind(polyline)
         .execute(pool)
         .await?;
     }
