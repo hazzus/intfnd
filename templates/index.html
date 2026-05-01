@@ -191,7 +191,27 @@
   let circle = null;
   let isDragging = false;
   let dragStart = null;
-  let hoverMarker = null;
+  let hoverLayers = [];
+
+  function clearHover() {
+    hoverLayers.forEach(l => l.remove());
+    hoverLayers = [];
+  }
+
+  function decodePolyline(encoded) {
+    const pts = [];
+    let idx = 0, lat = 0, lng = 0;
+    while (idx < encoded.length) {
+      let b, shift = 0, result = 0;
+      do { b = encoded.charCodeAt(idx++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
+      lat += (result & 1) ? ~(result >> 1) : (result >> 1);
+      shift = result = 0;
+      do { b = encoded.charCodeAt(idx++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
+      lng += (result & 1) ? ~(result >> 1) : (result >> 1);
+      pts.push([lat / 1e5, lng / 1e5]);
+    }
+    return pts;
+  }
 
   function placePin(latlng, radius) {
     if (marker) marker.remove();
@@ -349,18 +369,23 @@
       resultsEl.querySelectorAll('.result-card').forEach(card => {
         const s = segments[+card.dataset.idx];
         card.addEventListener('mouseenter', () => {
-          if (hoverMarker) hoverMarker.remove();
-          hoverMarker = L.circleMarker([s.start_lat, s.start_lng], {
-            radius: 7,
-            color: '#fc4c02',
+          clearHover();
+          if (s.polyline) {
+            hoverLayers.push(L.polyline(decodePolyline(s.polyline), {
+              color: '#fc4c02',
+              weight: 3,
+              opacity: 0.9,
+            }).addTo(map));
+          }
+          hoverLayers.push(L.circleMarker([s.start_lat, s.start_lng], {
+            radius: 5,
+            color: '#fff',
             fillColor: '#fc4c02',
-            fillOpacity: 0.9,
+            fillOpacity: 1,
             weight: 2,
-          }).addTo(map);
+          }).addTo(map));
         });
-        card.addEventListener('mouseleave', () => {
-          if (hoverMarker) { hoverMarker.remove(); hoverMarker = null; }
-        });
+        card.addEventListener('mouseleave', clearHover);
       });
     } catch {
       document.getElementById('results').innerHTML = '<p class="warn">⚠ Request failed.</p>';
