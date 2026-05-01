@@ -63,6 +63,7 @@ async fn main() -> anyhow::Result<()> {
 
     let app = Router::new()
         .route("/", get(routes::pages::index))
+        .route("/icon.png", get(routes::pages::icon))
         .route("/auth/strava", get(routes::auth::login))
         .route("/auth/strava/callback", get(routes::auth::callback))
         .route("/api/search", post(routes::search::search))

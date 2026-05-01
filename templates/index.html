@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>intfnd</title>
+  <link rel="icon" type="image/png" href="/icon.png">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -28,7 +29,8 @@
       border-bottom: 1px solid #ddd;
       flex-shrink: 0;
     }
-    .logo { font-size: 1.1rem; font-weight: bold; color: #222; }
+    .logo { display: flex; align-items: center; gap: 8px; font-size: 1.1rem; font-weight: bold; color: #222; }
+    .logo img { width: 24px; height: 24px; }
 
     #header-right {
       display: flex;
@@ -139,7 +141,7 @@
 <body>
 
 <header>
-  <span class="logo">intfnd</span>
+  <span class="logo"><img src="/icon.png" alt="">intfnd</span>
   <div id="header-right"></div>
 </header>
 
