@@ -33,13 +33,11 @@ pub struct SearchResult {
     pub star_count: i32,
 }
 
-pub async fn search(
-    State(state): State<AppState>,
-    Json(req): Json<SearchRequest>,
-) -> Response {
-    info!(lat = req.lat, lng = req.lng, radius_m = req.radius_m, weight_kg = req.weight_kg, power_w = req.power_w, interval_s = req.interval_s, "search request");
-
-    let segments = match sqlx::query_as::<_, Segment>(
+pub async fn execute_search(
+    pool: &sqlx::PgPool,
+    req: &SearchRequest,
+) -> Result<Vec<SearchResult>, sqlx::Error> {
+    let segments = sqlx::query_as::<_, Segment>(
         "SELECT strava_id, name, distance, average_grade, start_lat, start_lng, polyline, star_count
          FROM segments
          WHERE ST_DWithin(
@@ -50,17 +48,11 @@ pub async fn search(
     )
     .bind(req.lng)
     .bind(req.lat)
-    .bind(req.radius_m)
-    .fetch_all(&state.pool)
-    .await
-    {
-        Ok(s) => s,
-        Err(e) => {
-            error!(err = ?e, "search query failed");
-            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-        }
-    };
+    .bind(req.radius_m.min(50_000.0))
+    .fetch_all(pool)
+    .await?;
 
+    let margin = req.interval_s * 0.1;
     let mut results: Vec<SearchResult> = segments
         .into_iter()
         .filter_map(|seg| {
@@ -70,8 +62,7 @@ pub async fn search(
                 req.weight_kg,
                 req.power_w,
             )?;
-            let margin = req.interval_s * 0.1;
-            if t < req.interval_s - margin {
+            if t < req.interval_s - margin || t > req.interval_s * 3.0 {
                 return None;
             }
             Some(SearchResult {
@@ -98,6 +89,31 @@ pub async fn search(
     };
     results.sort_by(|a, b| score(b).partial_cmp(&score(a)).unwrap_or(std::cmp::Ordering::Equal));
 
-    info!(count = results.len(), "search results");
-    Json(results).into_response()
+    Ok(results)
+}
+
+pub async fn search(
+    State(state): State<AppState>,
+    Json(req): Json<SearchRequest>,
+) -> Response {
+    info!(
+        lat = req.lat,
+        lng = req.lng,
+        radius_m = req.radius_m,
+        weight_kg = req.weight_kg,
+        power_w = req.power_w,
+        interval_s = req.interval_s,
+        "search request"
+    );
+
+    match execute_search(&state.pool, &req).await {
+        Ok(results) => {
+            info!(count = results.len(), "search results");
+            Json(results).into_response()
+        }
+        Err(e) => {
+            error!(err = ?e, "search query failed");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
 }

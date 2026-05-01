@@ -35,6 +35,7 @@ Axum 0.8 + Tokio web server, PostgreSQL + PostGIS for storage, SQLx 0.8 (runtime
 - `GET /auth/strava/callback` — exchanges code, upserts user, sets encrypted cookie (`user_id`, path `/`), spawns sync task
 - `POST /api/search` — PostGIS radius query + physics filter, returns ranked segments
 - `GET /api/sync/status` — returns `{total, done}` for the authed user; 401 if not logged in (frontend uses this to decide whether to show auth button or progress bar)
+- `POST /mcp` — MCP streamable HTTP transport (rmcp 1.6.0); tools: `find_segments`, `list_known_locations`; no auth required
 
 **Sync** (`src/sync.rs`): fetches all Strava activities (paginated, oldest-first), then fetches full detail for each and upserts segments. `last_synced_at` is updated per-activity using the activity's own `start_date + 1s`, enabling incremental sync on re-login. The in-memory `sync_jobs` set prevents duplicate tasks per user.
 
