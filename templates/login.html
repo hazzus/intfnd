@@ -17,22 +17,14 @@
     }
     h1 { font-size: 1.4rem; color: #222; }
     p  { font-size: 0.85rem; color: #666; }
-    a.btn {
-      background: #fc4c02;
-      color: #fff;
-      padding: 12px 28px;
-      border-radius: 4px;
-      text-decoration: none;
-      font-size: 1rem;
-      font-weight: bold;
-      letter-spacing: 0.02em;
-    }
-    a.btn:hover { background: #e04400; }
+    a.strava-btn { display: inline-block; line-height: 0; }
   </style>
 </head>
 <body>
   <h1>intfnd</h1>
   <p>Find segments for your interval workouts</p>
-  <a class="btn" href="/auth/strava">Connect with Strava</a>
+  <a class="strava-btn" href="/auth/strava">
+    <img src="https://www.strava.com/assets/btn_strava_connectwith_orange.svg" alt="Connect with Strava" height="48">
+  </a>
 </body>
 </html>

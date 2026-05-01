@@ -39,16 +39,7 @@
       gap: 12px;
     }
     .auth-hint { font-size: 0.8rem; color: #888; }
-    a.btn {
-      background: #fc4c02;
-      color: #fff;
-      padding: 7px 16px;
-      border-radius: 4px;
-      text-decoration: none;
-      font-size: 0.85rem;
-      font-weight: bold;
-    }
-    a.btn:hover { background: #e04400; }
+    #strava-connect-btn { display: inline-block; line-height: 0; }
 
     .sync-text { font-size: 0.8rem; color: #555; }
     .sync-text.done { color: #2a9d2a; }
@@ -128,15 +119,18 @@
       border-radius: 4px;
       padding: 10px 12px;
     }
-    .result-name {
-      font-size: 0.9rem;
-      font-weight: bold;
+    .result-header { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+    .result-name { font-size: 0.9rem; font-weight: bold; color: #222; }
+    .view-on-strava {
+      font-size: 0.75rem;
       color: #fc4c02;
-      text-decoration: none;
+      font-weight: bold;
+      text-decoration: underline;
+      flex-shrink: 0;
     }
-    .result-name:hover { text-decoration: underline; }
     .result-meta { font-size: 0.78rem; color: #666; margin-top: 4px; }
     .no-results { font-size: 0.85rem; color: #888; }
+    #strava-powered { display: flex; justify-content: center; padding-top: 8px; }
   </style>
 </head>
 <body>
@@ -169,6 +163,11 @@
     <div id="warnings"></div>
     <button id="find-btn">find</button>
     <div id="results"></div>
+    <div id="strava-powered">
+      <a href="https://www.strava.com" target="_blank" rel="noopener noreferrer">
+        <img src="https://www.strava.com/assets/api_logo_pwrdBy_strava_horiz_orange.svg" alt="Powered by Strava" height="24">
+      </a>
+    </div>
   </div>
 </main>
 
@@ -276,7 +275,9 @@
   function showAuthButton() {
     document.getElementById('header-right').innerHTML = `
       <span class="auth-hint">help us gather more segments, connect your account</span>
-      <a class="btn" href="/auth/strava">connect with Strava</a>
+      <a id="strava-connect-btn" href="/auth/strava">
+        <img src="https://www.strava.com/assets/btn_strava_connectwith_orange.svg" alt="Connect with Strava" height="48">
+      </a>
     `;
   }
 
@@ -353,7 +354,10 @@
         const deltaStr = (delta >= 0 ? '+' : '') + delta + 's';
         return `
         <div class="result-card" data-idx="${i}">
-          <a class="result-name" href="https://www.strava.com/segments/${s.strava_id}" target="_blank">${s.name}</a>
+          <div class="result-header">
+            <span class="result-name">${s.name}</span>
+            <a class="view-on-strava" href="https://www.strava.com/segments/${s.strava_id}" target="_blank" rel="noopener noreferrer">View on Strava</a>
+          </div>
           <div class="result-meta">
             ${(s.distance_m / 1000).toFixed(2)} km &nbsp;·&nbsp;
             ${s.average_grade.toFixed(1)}% &nbsp;·&nbsp;
