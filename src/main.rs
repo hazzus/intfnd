@@ -1,6 +1,7 @@
 mod config;
 mod db;
 mod enrich;
+mod mcp;
 mod models;
 mod physics;
 mod routes;
@@ -15,6 +16,10 @@ use axum::{
     Router,
 };
 use axum_extra::extract::cookie::Key;
+use rmcp::transport::streamable_http_server::{
+    StreamableHttpServerConfig, StreamableHttpService,
+    session::local::LocalSessionManager,
+};
 
 use config::Config;
 use strava::rate_limiter::RateLimiter;
@@ -61,6 +66,13 @@ async fn main() -> anyhow::Result<()> {
 
     enrich::spawn_enrich_task(state.pool.clone(), Arc::clone(&state.config), Arc::clone(&state.rate_limiter));
 
+    let mcp_pool = state.pool.clone();
+    let mcp_service = StreamableHttpService::new(
+        move || Ok(mcp::IntfndServer::new(mcp_pool.clone())),
+        LocalSessionManager::default().into(),
+        StreamableHttpServerConfig::default(),
+    );
+
     let app = Router::new()
         .route("/", get(routes::pages::index))
         .route("/icon.png", get(routes::pages::icon))
@@ -69,6 +81,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/search", post(routes::search::search))
         .route("/api/sync/status", get(routes::sync::status))
         .route("/api/sync/start", post(routes::sync::start))
+        .nest_service("/mcp", mcp_service)
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind(&bind_addr).await?;
