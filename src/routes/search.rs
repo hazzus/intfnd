@@ -6,7 +6,7 @@ use axum::{
 };
 use axum_extra::extract::cookie::PrivateCookieJar;
 use serde::{Deserialize, Serialize};
-use tracing::error;
+use tracing::{error, info};
 
 use crate::{models::Segment, physics, AppState};
 
@@ -42,6 +42,8 @@ pub async fn search(
     if jar.get("user_id").is_none() {
         return StatusCode::UNAUTHORIZED.into_response();
     }
+
+    info!(lat = req.lat, lng = req.lng, radius_m = req.radius_m, weight_kg = req.weight_kg, power_w = req.power_w, interval_s = req.interval_s, "search request");
 
     let segments = match sqlx::query_as::<_, Segment>(
         "SELECT strava_id, name, distance, average_grade, start_lat, start_lng, polyline, star_count
@@ -100,5 +102,6 @@ pub async fn search(
             .then(b.star_count.cmp(&a.star_count))
     });
 
+    info!(count = results.len(), "search results");
     Json(results).into_response()
 }

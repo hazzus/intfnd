@@ -50,6 +50,11 @@ async fn run_sync(pool: &PgPool, user_id: i64, config: Arc<Config>, rate_limiter
     }
     activities.sort_by_key(|&(_, date)| date);
 
+    if activities.is_empty() {
+        info!(user_id, "no new activities to sync");
+        return Ok(());
+    }
+
     sqlx::query("UPDATE users SET sync_activities_total = $1, sync_activities_done = 0 WHERE id = $2")
         .bind(activities.len() as i32)
         .bind(user_id)

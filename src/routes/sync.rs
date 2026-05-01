@@ -7,6 +7,8 @@ use axum::{
 use axum_extra::extract::cookie::PrivateCookieJar;
 use serde::Serialize;
 
+use tracing::error;
+
 use crate::AppState;
 
 #[derive(Serialize)]
@@ -32,6 +34,9 @@ pub async fn status(State(state): State<AppState>, jar: PrivateCookieJar) -> Res
     .await
     {
         Ok((total, done)) => Json(SyncStatus { total, done }).into_response(),
-        Err(_) => StatusCode::UNAUTHORIZED.into_response(),
+        Err(e) => {
+            error!(user_id, err = ?e, "failed to fetch sync status");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
     }
 }

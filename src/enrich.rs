@@ -12,6 +12,7 @@ use crate::strava::client::StravaClient;
 use crate::strava::rate_limiter::RateLimiter;
 
 pub fn spawn_enrich_task(pool: PgPool, config: Arc<Config>, rate_limiter: Arc<RateLimiter>) {
+    info!("starting segment enrichment task");
     tokio::spawn(async move {
         loop {
             match run_pass(&pool, &config, &rate_limiter).await {
@@ -36,6 +37,7 @@ async fn run_pass(pool: &PgPool, config: &Arc<Config>, rate_limiter: &Arc<RateLi
     .await?;
 
     let Some(user) = user else {
+        info!("no users registered yet, skipping enrichment pass");
         return Ok(0);
     };
 
@@ -49,6 +51,7 @@ async fn run_pass(pool: &PgPool, config: &Arc<Config>, rate_limiter: &Arc<RateLi
     .await?;
 
     if ids.is_empty() {
+        info!("all segments enriched, nothing to do");
         return Ok(0);
     }
 
