@@ -68,6 +68,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/auth/strava/callback", get(routes::auth::callback))
         .route("/api/search", post(routes::search::search))
         .route("/api/sync/status", get(routes::sync::status))
+        .route("/api/sync/start", post(routes::sync::start))
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind(&bind_addr).await?;

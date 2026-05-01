@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use axum::{
     extract::State,
     http::StatusCode,
@@ -6,8 +8,7 @@ use axum::{
 };
 use axum_extra::extract::cookie::PrivateCookieJar;
 use serde::Serialize;
-
-use tracing::error;
+use tracing::{error, info};
 
 use crate::AppState;
 
@@ -39,4 +40,25 @@ pub async fn status(State(state): State<AppState>, jar: PrivateCookieJar) -> Res
             StatusCode::INTERNAL_SERVER_ERROR.into_response()
         }
     }
+}
+
+pub async fn start(State(state): State<AppState>, jar: PrivateCookieJar) -> Response {
+    let user_id: i64 = match jar.get("user_id").and_then(|c| c.value().parse().ok()) {
+        Some(id) => id,
+        None => return StatusCode::UNAUTHORIZED.into_response(),
+    };
+
+    let spawned = state.sync_jobs.lock().unwrap().insert(user_id);
+    if spawned {
+        info!(user_id, "relaunching sync task");
+        crate::sync::spawn_sync_task(
+            state.pool.clone(),
+            user_id,
+            Arc::clone(&state.config),
+            Arc::clone(&state.sync_jobs),
+            Arc::clone(&state.rate_limiter),
+        );
+    }
+
+    StatusCode::OK.into_response()
 }

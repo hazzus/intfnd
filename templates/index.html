@@ -398,6 +398,7 @@
   });
 
   checkStatus();
+  fetch('/api/sync/start', { method: 'POST' }).catch(() => {});
 </script>
 </body>
 </html>
