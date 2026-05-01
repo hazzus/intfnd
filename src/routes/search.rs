@@ -4,7 +4,6 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
-use axum_extra::extract::cookie::PrivateCookieJar;
 use serde::{Deserialize, Serialize};
 use tracing::{error, info};
 
@@ -36,13 +35,8 @@ pub struct SearchResult {
 
 pub async fn search(
     State(state): State<AppState>,
-    jar: PrivateCookieJar,
     Json(req): Json<SearchRequest>,
 ) -> Response {
-    if jar.get("user_id").is_none() {
-        return StatusCode::UNAUTHORIZED.into_response();
-    }
-
     info!(lat = req.lat, lng = req.lng, radius_m = req.radius_m, weight_kg = req.weight_kg, power_w = req.power_w, interval_s = req.interval_s, "search request");
 
     let segments = match sqlx::query_as::<_, Segment>(

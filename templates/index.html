@@ -340,11 +340,6 @@
 
       const resultsEl = document.getElementById('results');
 
-      if (res.status === 401) {
-        resultsEl.innerHTML = '<p class="warn">⚠ Not logged in.</p>';
-        return;
-      }
-
       const segments = await res.json();
       if (!segments.length) {
         resultsEl.innerHTML = '<p class="no-results">No matching segments in this area.</p>';
