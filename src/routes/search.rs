@@ -95,12 +95,14 @@ pub async fn search(
         })
         .collect();
 
-    results.sort_by(|a, b| {
-        a.delta_s
-            .partial_cmp(&b.delta_s)
-            .unwrap_or(std::cmp::Ordering::Equal)
-            .then(b.star_count.cmp(&a.star_count))
-    });
+    // K=50: star count considered "half-popular"; tune to ~75th percentile of star_count in your data
+    const K: f64 = 50.0;
+    let score = |r: &SearchResult| -> f64 {
+        let time_score = 1.0 / (1.0 + (r.delta_s / req.interval_s).powi(2));
+        let star_score = r.star_count as f64 / (r.star_count as f64 + K);
+        time_score * (1.0 + 0.5 * star_score)
+    };
+    results.sort_by(|a, b| score(b).partial_cmp(&score(a)).unwrap_or(std::cmp::Ordering::Equal));
 
     info!(count = results.len(), "search results");
     Json(results).into_response()
