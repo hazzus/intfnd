@@ -91,7 +91,7 @@ async fn run_sync(pool: &PgPool, user_id: i64, config: Arc<Config>, rate_limiter
 async fn upsert_segments(pool: &PgPool, efforts: &[SegmentEffort]) -> Result<()> {
     for effort in efforts {
         let seg = &effort.segment;
-        if seg.private || seg.start_latlng.len() < 2 {
+        if seg.private || seg.start_latlng.len() < 2 || seg.average_grade < 0.0 {
             continue;
         }
         let polyline = seg.map.as_ref().and_then(|m| m.polyline.clone());

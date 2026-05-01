@@ -40,6 +40,7 @@
     }
     .auth-hint { font-size: 0.8rem; color: #888; }
     #strava-connect-btn { display: inline-block; line-height: 0; }
+    #strava-connect-btn img { height: 32px; }
 
     .sync-text { font-size: 0.8rem; color: #555; }
     .sync-text.done { color: #2a9d2a; }
@@ -276,7 +277,7 @@
     document.getElementById('header-right').innerHTML = `
       <span class="auth-hint">help us gather more segments, connect your account</span>
       <a id="strava-connect-btn" href="/auth/strava">
-        <img src="/strava-connect.png" alt="Connect with Strava" height="48">
+        <img src="/strava-connect.png" alt="Connect with Strava">
       </a>
     `;
   }
