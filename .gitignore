@@ -1,3 +1,8 @@
 /target
 intfnd.sql
 .env
+/scripts/resources
+/scripts/.venv
+__pycache__/
+*.pyc
+

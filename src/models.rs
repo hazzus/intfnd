@@ -1,6 +1,7 @@
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 use sqlx::FromRow;
+use uuid::Uuid;
 
 #[derive(Debug, FromRow)]
 #[allow(dead_code)]
@@ -16,7 +17,8 @@ pub struct User {
 
 #[derive(Debug, FromRow, Serialize)]
 pub struct Segment {
-    pub strava_id: i64,
+    pub id: Uuid,
+    pub strava_id: Option<i64>,
     pub name: String,
     pub distance: f64,
     pub average_grade: f64,

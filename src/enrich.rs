@@ -5,6 +5,7 @@ use chrono::{DateTime, Duration, Utc};
 use sqlx::PgPool;
 use tokio::time::sleep;
 use tracing::{error, info, warn};
+use uuid::Uuid;
 
 use crate::config::Config;
 use crate::models::User;
@@ -44,25 +45,27 @@ async fn run_pass(pool: &PgPool, config: &Arc<Config>, rate_limiter: &Arc<RateLi
     let strava = StravaClient::new(Arc::clone(config), Arc::clone(rate_limiter));
     let access_token = fresh_token(pool, &strava, &user).await?;
 
-    let ids: Vec<i64> = sqlx::query_scalar(
-        "SELECT strava_id FROM segments WHERE polyline IS NULL LIMIT 100",
+    let rows: Vec<(Uuid, i64)> = sqlx::query_as(
+        "SELECT id, strava_id FROM segments
+         WHERE polyline IS NULL AND strava_id IS NOT NULL
+         LIMIT 100",
     )
     .fetch_all(pool)
     .await?;
 
-    if ids.is_empty() {
+    if rows.is_empty() {
         info!("all segments enriched, nothing to do");
         return Ok(0);
     }
 
-    info!(count = ids.len(), "enriching segments");
+    info!(count = rows.len(), "enriching segments");
     let mut enriched = 0usize;
 
-    for id in ids {
-        match strava.get_segment(&access_token, id).await {
+    for (id, strava_id) in rows {
+        match strava.get_segment(&access_token, strava_id).await {
             Ok(seg) => {
                 sqlx::query(
-                    "UPDATE segments SET polyline = $1, star_count = $2 WHERE strava_id = $3",
+                    "UPDATE segments SET polyline = $1, star_count = $2 WHERE id = $3",
                 )
                 .bind(seg.map.and_then(|m| m.polyline))
                 .bind(seg.star_count)
@@ -71,7 +74,7 @@ async fn run_pass(pool: &PgPool, config: &Arc<Config>, rate_limiter: &Arc<RateLi
                 .await?;
                 enriched += 1;
             }
-            Err(e) => warn!(id, err = ?e, "failed to fetch segment detail, skipping"),
+            Err(e) => warn!(strava_id, err = ?e, "failed to fetch segment detail, skipping"),
         }
     }
 

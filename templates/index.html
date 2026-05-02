@@ -353,11 +353,14 @@
       resultsEl.innerHTML = segments.map((s, i) => {
         const delta = Math.round(s.delta_s);
         const deltaStr = (delta >= 0 ? '+' : '') + delta + 's';
+        const stravaLink = s.strava_id
+          ? `<a class="view-on-strava" href="https://www.strava.com/segments/${s.strava_id}" target="_blank" rel="noopener noreferrer">View on Strava</a>`
+          : '';
         return `
         <div class="result-card" data-idx="${i}">
           <div class="result-header">
             <span class="result-name">${s.name}</span>
-            <a class="view-on-strava" href="https://www.strava.com/segments/${s.strava_id}" target="_blank" rel="noopener noreferrer">View on Strava</a>
+            ${stravaLink}
           </div>
           <div class="result-meta">
             ${(s.distance_m / 1000).toFixed(2)} km &nbsp;·&nbsp;

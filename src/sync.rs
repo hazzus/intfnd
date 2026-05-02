@@ -97,8 +97,8 @@ async fn upsert_segments(pool: &PgPool, efforts: &[SegmentEffort]) -> Result<()>
         let polyline = seg.map.as_ref().and_then(|m| m.polyline.clone());
         sqlx::query(
             "INSERT INTO segments (strava_id, name, distance, average_grade, start_lat, start_lng, polyline)
-             VALUES ($1, $2, $3, $4, $5, $6, $7)
-             ON CONFLICT (strava_id) DO NOTHING",
+             SELECT $1, $2, $3, $4, $5, $6, $7
+             WHERE NOT EXISTS (SELECT 1 FROM segments WHERE strava_id = $1)",
         )
         .bind(seg.id)
         .bind(&seg.name)

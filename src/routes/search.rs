@@ -6,6 +6,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use tracing::{error, info};
+use uuid::Uuid;
 
 use crate::{models::Segment, physics, AppState};
 
@@ -21,7 +22,8 @@ pub struct SearchRequest {
 
 #[derive(Serialize)]
 pub struct SearchResult {
-    pub strava_id: i64,
+    pub id: Uuid,
+    pub strava_id: Option<i64>,
     pub name: String,
     pub distance_m: f64,
     pub average_grade: f64,
@@ -40,7 +42,7 @@ pub async fn search(
     info!(lat = req.lat, lng = req.lng, radius_m = req.radius_m, weight_kg = req.weight_kg, power_w = req.power_w, interval_s = req.interval_s, "search request");
 
     let segments = match sqlx::query_as::<_, Segment>(
-        "SELECT strava_id, name, distance, average_grade, start_lat, start_lng, polyline, star_count
+        "SELECT id, strava_id, name, distance, average_grade, start_lat, start_lng, polyline, star_count
          FROM segments
          WHERE ST_DWithin(
              ST_MakePoint(start_lng, start_lat)::geography,
@@ -75,6 +77,7 @@ pub async fn search(
                 return None;
             }
             Some(SearchResult {
+                id: seg.id,
                 strava_id: seg.strava_id,
                 name: seg.name,
                 distance_m: seg.distance,
