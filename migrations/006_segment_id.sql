@@ -1,0 +1,4 @@
+ALTER TABLE segments DROP CONSTRAINT segments_pkey;
+ALTER TABLE segments ADD COLUMN id UUID NOT NULL DEFAULT gen_random_uuid();
+ALTER TABLE segments ADD PRIMARY KEY (id);
+ALTER TABLE segments ALTER COLUMN strava_id DROP NOT NULL;
