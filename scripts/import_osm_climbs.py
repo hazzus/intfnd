@@ -10,9 +10,8 @@ Example:
         --db postgres://postgres:pw@localhost/intfnd
 
 TODO:
-1. not concatenating clearly on Bergstrasse, check this 298583332, 298583334 --
-    check ports not only degree 2 but any and if many ways suitable -- add all to chains
-2. also check all nodes if they are ports maybe becuase intersecting with some other road maybe climb but this very much super grows complexity
+1. check all nodes if they are ports maybe becuase intersecting with some other road maybe climb but this very much super grows complexity
+2. have osm links undercut to debug or hold in db and create api for chain debugging?
 """
 import argparse
 import json
@@ -217,6 +216,30 @@ def build_chains(ways: list[Way]) -> list[Chain]:
             list(reversed(backward)) + [(seed, False)] + forward
         )
 
+        # Decide whether the chain's stitched order is rideable as-is, only in reverse,
+        # both ways, or not at all. For each member, the chain's "forward" traversal
+        # consumes the way in 'forward' direction when rev=False, else in 'reverse'.
+        chain_fwd_ok = True
+        chain_rev_ok = True
+        for way_idx, rev in ordered:
+            dirs = way_directions(ways[way_idx].tags)
+            fwd_member_dir = "reverse" if rev else "forward"
+            rev_member_dir = "forward" if rev else "reverse"
+            if fwd_member_dir not in dirs:
+                chain_fwd_ok = False
+            if rev_member_dir not in dirs:
+                chain_rev_ok = False
+            if not chain_fwd_ok and not chain_rev_ok:
+                break
+
+        if not chain_fwd_ok and not chain_rev_ok:
+            # Members disagree on direction — chain isn't rideable end-to-end.
+            continue
+
+        if not chain_fwd_ok and chain_rev_ok:
+            # Flip the chain so its stored "forward" matches the legal direction.
+            ordered = [(idx, not rev) for idx, rev in reversed(ordered)]
+
         # Concatenate coords, deduping the shared boundary node between adjacent ways.
         combined: list[tuple[float, float]] = []
         for k, (way_idx, rev) in enumerate(ordered):
@@ -240,7 +263,7 @@ def build_chains(ways: list[Way]) -> list[Chain]:
                 ref=seed_way.ref,
                 highway=highway,
                 surface=surface,
-                bidirectional=all(is_bidirectional(m.tags) for m in members),
+                bidirectional=chain_fwd_ok and chain_rev_ok,
                 tags=seed_way.tags,
             )
         )
@@ -371,12 +394,25 @@ def detect_climbs(
     return climbs
 
 
-def is_bidirectional(tags: dict) -> bool:
-    """Return True if a cyclist can ride this way in both stored directions."""
-    if tags.get("oneway:bicycle") == "no":
-        return True
-    oneway = tags.get("oneway", "no")
-    return oneway in ("no", "false", "0", None)
+def way_directions(tags: dict) -> set[str]:
+    """Set of legal travel directions for a cyclist, relative to the way's stored coord order.
+
+    'forward' = traversing coords[0] → coords[-1].
+    'reverse' = traversing coords[-1] → coords[0].
+    """
+    bike = tags.get("oneway:bicycle")
+    if bike == "no":
+        return {"forward", "reverse"}
+    if bike == "yes":
+        return {"forward"}
+    if bike == "-1":
+        return {"reverse"}
+    oneway = tags.get("oneway")
+    if oneway in ("yes", "true", "1"):
+        return {"forward"}
+    if oneway in ("-1", "reverse"):
+        return {"reverse"}
+    return {"forward", "reverse"}
 
 
 def reverse_profile(lats, lngs, cum, elev):
