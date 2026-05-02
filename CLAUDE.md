@@ -18,46 +18,40 @@ docker compose logs -f app  # tail app logs
 docker compose exec db psql -U postgres intfnd  # connect to DB
 ```
 
-Generate a cookie secret (must be ≥ 64 bytes):
-```bash
-openssl rand -hex 64
-```
-
 ## Architecture
 
-Axum 0.8 + Tokio web server, PostgreSQL + PostGIS for storage, SQLx 0.8 (runtime queries, no compile-time macros). Single binary, single process — background sync runs as `tokio::spawn`.
+Axum 0.8 + Tokio web server, PostgreSQL + PostGIS for storage, SQLx 0.8 (runtime queries, no compile-time macros). Single binary, read-only API — segments are populated out-of-band by `scripts/import_osm_climbs.py`.
 
-**AppState** (`src/main.rs`): holds `PgPool`, `Arc<Config>`, `Key` (cookie encryption), and `Arc<Mutex<HashSet<i64>>>` for in-flight sync job tracking. `FromRef<AppState> for Key` is implemented so `PrivateCookieJar` can extract the key automatically.
+**AppState** (`src/main.rs`): holds `PgPool` and `Arc<Config>`.
 
 **Routes:**
-- `GET /` — serves `templates/index.html` (single page, all auth/sync state handled by JS)
-- `GET /auth/strava` — redirects to Strava OAuth
-- `GET /auth/strava/callback` — exchanges code, upserts user, sets encrypted cookie (`user_id`, path `/`), spawns sync task
+- `GET /` — serves `templates/index.html`
+- `GET /icon.png` — site icon
 - `POST /api/search` — PostGIS radius query + physics filter, returns ranked segments
-- `GET /api/sync/status` — returns `{total, done}` for the authed user; 401 if not logged in (frontend uses this to decide whether to show auth button or progress bar)
-
-**Sync** (`src/sync.rs`): fetches all Strava activities (paginated, oldest-first), then fetches full detail for each and upserts segments. `last_synced_at` is updated per-activity using the activity's own `start_date + 1s`, enabling incremental sync on re-login. The in-memory `sync_jobs` set prevents duplicate tasks per user.
 
 **Physics** (`src/physics.rs`): three-force cycling model — gravity (`m·g·grade`), rolling resistance (`m·g·Crr`), and aerodynamic drag (`½·ρ·CdA·v²`). Solves for velocity using Newton's method on the cubic power equation (`P = F_total · v`), then returns `distance / v`. Constants: `Crr=0.004`, `CdA=0.32 m²`, `ρ=1.225 kg/m³`, drivetrain efficiency 95%.
 
-**Strava rate limiting** (`src/strava/client.rs`): reads `X-RateLimit-Usage` header and sleeps proportionally; on 429 response, sleeps until the next 15-minute window boundary.
+## Segments table
+
+`segments` has a UUID primary key and these fields: `name`, `distance`, `average_grade`, `start_lat`, `start_lng`, `polyline`, `surface` (`'asphalt'` or `'non_asphalt'`, CHECK-constrained). Populated by the OSM importer; the app itself never writes to it.
 
 ## Migrations
 
-Four sequential files in `migrations/`. Order matters — PostGIS must be installed before any `geography` type is used:
+Sequential files in `migrations/`. Order matters — PostGIS must be installed before any `geography` type is used:
 1. `001_init.sql` — `CREATE EXTENSION postgis` (alone, because SQLx sends the whole file as one query and PostgreSQL can't resolve `geography` until the extension exists)
-2. `002_tables.sql` — `users` and `segments` tables
+2. `002_tables.sql` — original `users` + `segments` tables (users dropped in 007)
 3. `003_gist_index.sql` — GIST index on `ST_MakePoint(start_lng, start_lat)::geography` (separate file for the same reason)
-4. `004_sync_tracking.sql` — adds `last_synced_at` to users
+4. `004_sync_tracking.sql` — added `last_synced_at` to users (table later dropped)
+5. `005_polyline.sql` — replaces `elevation_gain` with `polyline` + `star_count`
+6. `006_segment_id.sql` — switches segments primary key to UUID
+7. `007_drop_strava_add_surface.sql` — drops `users` table, drops `segments.strava_id` and `star_count`, adds `surface` column with CHECK constraint
 
 ## Environment
 
-Copy `.env.example` to `.env` and fill in:
-- `STRAVA_CLIENT_ID`, `STRAVA_CLIENT_SECRET` — from your Strava API app
-- `STRAVA_REDIRECT_URI` — must match what's registered in Strava (e.g. `http://localhost:3000/auth/strava/callback`)
-- `COOKIE_SECRET` — at least 64 bytes, generate with `openssl rand -hex 64`
+Copy `.env.example` to `.env`:
 - `DATABASE_URL` — set automatically in Docker; override for local dev
+- `BIND_ADDR` — defaults to `0.0.0.0:3000`
 
 ## Frontend
 
-Single `templates/index.html` embedded at compile time via `include_str!`. Leaflet map on the left (double-click to pin, double-click+drag to set radius), form on the right. On load, JS calls `/api/sync/status`: 401 → shows Strava connect button; 200 → shows activity sync progress bar. Hovering a result card places an orange circle marker on the segment's start point.
+Single `templates/index.html` embedded at compile time via `include_str!`. Leaflet map on the left (double-click to pin, double-click+drag to set radius), form on the right. Hovering a result card draws the segment's polyline and places a marker at its start point. Each result shows a surface tag (asphalt vs unpaved).

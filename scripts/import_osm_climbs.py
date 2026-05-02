@@ -8,6 +8,11 @@ Example:
         --pbf liechtenstein.osm.pbf \\
         --dem liechtenstein-dem.tif \\
         --db postgres://postgres:pw@localhost/intfnd
+
+TODO:
+1. not concatenating clearly on Bergstrasse, check this 298583332, 298583334 --
+    check ports not only degree 2 but any and if many ways suitable -- add all to chains
+2. also check all nodes if they are ports maybe becuase intersecting with some other road maybe climb but this very much super grows complexity
 """
 import argparse
 import json
@@ -37,6 +42,32 @@ CYCLABLE_HIGHWAYS = {
     "cycleway", "track", "living_street",
 }
 
+ASPHALT_SURFACES = {
+    "asphalt", "paved", "concrete", "concrete:lanes", "concrete:plates",
+    "paving_stones", "chipseal", "metal",
+}
+NON_ASPHALT_SURFACES = {
+    "gravel", "fine_gravel", "dirt", "ground", "earth", "unpaved",
+    "sand", "mud", "grass", "compacted", "wood", "woodchips",
+    "pebblestone", "cobblestone", "sett",
+}
+HIGHWAY_DEFAULT_ASPHALT = {
+    "primary", "primary_link", "secondary", "secondary_link",
+    "tertiary", "tertiary_link", "unclassified", "residential",
+    "living_street", "road",
+}
+
+
+def classify_surface(tags: dict, highway: str) -> str:
+    """Return 'asphalt' or 'non_asphalt' for a way."""
+    s = (tags.get("surface") or "").lower()
+    if s in ASPHALT_SURFACES:
+        return "asphalt"
+    if s in NON_ASPHALT_SURFACES:
+        return "non_asphalt"
+    # No (or unrecognized) surface tag — fall back to highway class.
+    return "asphalt" if highway in HIGHWAY_DEFAULT_ASPHALT else "non_asphalt"
+
 
 @dataclass
 class Climb:
@@ -53,6 +84,7 @@ class Way:
     name: str | None
     ref: str | None
     highway: str
+    surface: str  # 'asphalt' or 'non_asphalt'
     tags: dict
 
 
@@ -78,6 +110,7 @@ class WayCollector(osmium.SimpleHandler):
             return
         if len(coords) < 2:
             return
+        tag_dict = {t.k: t.v for t in tags}
         self.ways.append(
             Way(
                 id=w.id,
@@ -85,7 +118,8 @@ class WayCollector(osmium.SimpleHandler):
                 name=tags.get("name"),
                 ref=tags.get("ref"),
                 highway=hw or "<none>",
-                tags={t.k: t.v for t in tags},
+                surface=classify_surface(tag_dict, hw or ""),
+                tags=tag_dict,
             )
         )
 
@@ -104,6 +138,7 @@ class Chain:
     name: str | None
     ref: str | None
     highway: str
+    surface: str  # 'asphalt' or 'non_asphalt'
     bidirectional: bool
     tags: dict = field(default_factory=dict)
 
@@ -113,11 +148,14 @@ class Chain:
 
 
 def build_chains(ways: list[Way]) -> list[Chain]:
-    """Stitch ways into chains through OSM nodes that are degree-2 (no junction).
+    """Stitch ways into chains across shared endpoint nodes.
 
-    Two ways are stitched only when they share an endpoint node and that node
-    has exactly two way-endpoints attached to it. Ways with start == end
-    (closed loops) are not stitched.
+    At a node, ports are grouped by highway type; two ports are paired only when
+    their highway-group at that node has exactly two ports (from different ways).
+    This means a primary road continuing through a 3-way junction where a side
+    street of a different class branches off will still stitch — but a 4-way
+    crossing of two primaries will not, since the pairing is ambiguous.
+    Ways with start == end (closed loops) are not stitched.
     """
     if not ways:
         return []
@@ -130,16 +168,23 @@ def build_chains(ways: list[Way]) -> list[Chain]:
         endpoints[w.coords[0]].append((i, "start"))
         endpoints[w.coords[-1]].append((i, "end"))
 
-    # partner[(way, port)] = (other_way, other_port) only when shared node has degree 2
+    # partner[(way, port)] = (other_way, other_port) when the node has exactly
+    # two ports with the same highway type (regardless of total node degree).
     partner: dict[tuple[int, str], tuple[int, str]] = {}
     for ports in endpoints.values():
-        if len(ports) != 2:
+        if len(ports) < 2:
             continue
-        (i1, p1), (i2, p2) = ports
-        if i1 == i2:
-            continue
-        partner[(i1, p1)] = (i2, p2)
-        partner[(i2, p2)] = (i1, p1)
+        by_hw: dict[str, list[tuple[int, str]]] = defaultdict(list)
+        for idx, port in ports:
+            by_hw[ways[idx].highway].append((idx, port))
+        for group in by_hw.values():
+            if len(group) != 2:
+                continue
+            (i1, p1), (i2, p2) = group
+            if i1 == i2:
+                continue
+            partner[(i1, p1)] = (i2, p2)
+            partner[(i2, p2)] = (i1, p1)
 
     visited = [False] * len(ways)
 
@@ -183,6 +228,8 @@ def build_chains(ways: list[Way]) -> list[Chain]:
 
         members = [ways[i] for i, _ in ordered]
         highway = Counter(m.highway for m in members).most_common(1)[0][0]
+        # Strict: any non-asphalt member taints the chain (riders care about the worst patch).
+        surface = "non_asphalt" if any(m.surface == "non_asphalt" for m in members) else "asphalt"
         names = [m.name for m in members if m.name]
         seed_way = ways[seed]
         chains.append(
@@ -192,6 +239,7 @@ def build_chains(ways: list[Way]) -> list[Chain]:
                 name=seed_way.name or (names[0] if names else None),
                 ref=seed_way.ref,
                 highway=highway,
+                surface=surface,
                 bidirectional=all(is_bidirectional(m.tags) for m in members),
                 tags=seed_way.tags,
             )
@@ -340,21 +388,21 @@ def reverse_profile(lats, lngs, cum, elev):
     )
 
 
-def to_segment_row(climb: Climb, way_name, way_ref) -> dict:
-    if way_name:
-        name = str(way_name)
-    elif way_ref:
-        name = f"Climb on {way_ref}"
+def to_segment_row(climb: Climb, chain: Chain) -> dict:
+    if chain.name:
+        name = str(chain.name)
+    elif chain.ref:
+        name = f"Climb on {chain.ref}"
     else:
         name = "Unnamed climb"
     return {
         "name": name,
         "distance": float(climb.length_m),
-        "average_grade": float(climb.grade),
+        "average_grade": float(climb.grade) * 100,
         "start_lat": float(climb.coords[0][0]),
         "start_lng": float(climb.coords[0][1]),
         "polyline": polyline_lib.encode(climb.coords),
-        "star_count": 0,
+        "surface": chain.surface,
     }
 
 
@@ -425,12 +473,51 @@ def write_geojson(path: str, features: list[dict]) -> None:
         json.dump(fc, f)
 
 
-def debug_chain(chain: Chain, dem, args) -> None:
+def way_length_m(coords: list[tuple[float, float]]) -> float:
+    total = 0.0
+    for i in range(1, len(coords)):
+        lng1, lat1 = coords[i - 1]
+        lng2, lat2 = coords[i]
+        _, _, dist = GEOD.inv(lng1, lat1, lng2, lat2)
+        if np.isfinite(dist):
+            total += dist
+    return total
+
+
+def debug_chain(chain: Chain, ways_by_id: dict[int, Way], dem, args) -> None:
     print(f"\n=== chain (seed way {chain.primary_id}, {len(chain.way_ids)} way(s)) ===")
     print(f"  way_ids: {chain.way_ids}")
     print(f"  highway: {chain.highway}   name: {chain.name!r}   ref: {chain.ref!r}")
     print(f"  bidirectional: {chain.bidirectional}")
     print(f"  raw coords: {len(chain.coords)} nodes")
+
+    # Surface verdict breakdown: a chain is non_asphalt if ANY member resolves to non_asphalt.
+    print(f"  surface verdict: {chain.surface}")
+    print(f"  per-member surface (tag → resolved):")
+    member_lengths = [way_length_m(ways_by_id[wid].coords) for wid in chain.way_ids]
+    chain_total = sum(member_lengths) or 1.0
+    tainters: list[tuple[int, float, str, str, str]] = []
+    for wid, length_m in zip(chain.way_ids, member_lengths):
+        w = ways_by_id[wid]
+        raw_tag = w.tags.get("surface") or "<none>"
+        marker = "  ← TAINTS" if w.surface == "non_asphalt" else ""
+        pct = 100 * length_m / chain_total
+        print(
+            f"    way/{wid:>11}  len={length_m:7.1f}m ({pct:5.1f}%)  "
+            f"highway={w.highway:<14}  surface={raw_tag:<14}  → {w.surface}{marker}"
+        )
+        if w.surface == "non_asphalt":
+            tainters.append((wid, length_m, w.highway, raw_tag, w.surface))
+    if chain.surface == "non_asphalt":
+        share = 100 * sum(t[1] for t in tainters) / chain_total
+        print(f"  → marked non_asphalt because {len(tainters)}/{len(chain.way_ids)} member(s) "
+              f"({share:.1f}% of length) resolved to non_asphalt")
+        for wid, length_m, hw, raw_tag, _ in tainters:
+            reason = (
+                f"explicit surface={raw_tag}" if raw_tag != "<none>"
+                else f"no surface tag, highway={hw} defaults to non_asphalt"
+            )
+            print(f"      way/{wid}: {reason}")
 
     resampled = resample_way(chain.coords, args.sample_step)
     if resampled is None:
@@ -556,10 +643,10 @@ def insert_segments(rows: list[dict], dsn: str) -> None:
             cur.executemany(
                 """
                 INSERT INTO segments
-                    (name, distance, average_grade, start_lat, start_lng, polyline, star_count)
+                    (name, distance, average_grade, start_lat, start_lng, polyline, surface)
                 VALUES
                     (%(name)s, %(distance)s, %(average_grade)s,
-                     %(start_lat)s, %(start_lng)s, %(polyline)s, %(star_count)s)
+                     %(start_lat)s, %(start_lng)s, %(polyline)s, %(surface)s)
                 """,
                 rows,
             )
@@ -630,6 +717,7 @@ def main() -> int:
 
     if args.debug_way:
         only_ids = set(args.debug_way)
+        ways_by_id = {w.id: w for w in ways}
         try:
             seen_chains: set[int] = set()
             for chain_idx, chain in enumerate(chains):
@@ -638,7 +726,7 @@ def main() -> int:
                 if chain_idx in seen_chains:
                     continue
                 seen_chains.add(chain_idx)
-                debug_chain(chain, dem, args)
+                debug_chain(chain, ways_by_id, dem, args)
             all_way_ids = {w.id for w in ways}
             missing = only_ids - all_way_ids
             if missing:
@@ -677,7 +765,7 @@ def main() -> int:
                     p_lats, p_lngs, p_cum, p_elev,
                     args.min_length, args.min_grade, args.min_gain, args.prominence,
                 ):
-                    row = to_segment_row(climb, chain.name, chain.ref)
+                    row = to_segment_row(climb, chain)
                     rows.append(row)
                     lengths.append(climb.length_m)
                     grades.append(climb.grade)

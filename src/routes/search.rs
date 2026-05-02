@@ -23,7 +23,6 @@ pub struct SearchRequest {
 #[derive(Serialize)]
 pub struct SearchResult {
     pub id: Uuid,
-    pub strava_id: Option<i64>,
     pub name: String,
     pub distance_m: f64,
     pub average_grade: f64,
@@ -32,7 +31,7 @@ pub struct SearchResult {
     pub start_lat: f64,
     pub start_lng: f64,
     pub polyline: Option<String>,
-    pub star_count: i32,
+    pub surface: String,
 }
 
 pub async fn search(
@@ -42,7 +41,7 @@ pub async fn search(
     info!(lat = req.lat, lng = req.lng, radius_m = req.radius_m, weight_kg = req.weight_kg, power_w = req.power_w, interval_s = req.interval_s, "search request");
 
     let segments = match sqlx::query_as::<_, Segment>(
-        "SELECT id, strava_id, name, distance, average_grade, start_lat, start_lng, polyline, star_count
+        "SELECT id, name, distance, average_grade, start_lat, start_lng, polyline, surface
          FROM segments
          WHERE ST_DWithin(
              ST_MakePoint(start_lng, start_lat)::geography,
@@ -78,7 +77,6 @@ pub async fn search(
             }
             Some(SearchResult {
                 id: seg.id,
-                strava_id: seg.strava_id,
                 name: seg.name,
                 distance_m: seg.distance,
                 average_grade: seg.average_grade,
@@ -87,19 +85,16 @@ pub async fn search(
                 start_lat: seg.start_lat,
                 start_lng: seg.start_lng,
                 polyline: seg.polyline,
-                star_count: seg.star_count,
+                surface: seg.surface,
             })
         })
         .collect();
 
-    // K=50: star count considered "half-popular"; tune to ~75th percentile of star_count in your data
-    const K: f64 = 50.0;
-    let score = |r: &SearchResult| -> f64 {
-        let time_score = 1.0 / (1.0 + (r.delta_s / req.interval_s).powi(2));
-        let star_score = r.star_count as f64 / (r.star_count as f64 + K);
-        time_score * (1.0 + 0.5 * star_score)
-    };
-    results.sort_by(|a, b| score(b).partial_cmp(&score(a)).unwrap_or(std::cmp::Ordering::Equal));
+    results.sort_by(|a, b| {
+        let sa = (a.delta_s / req.interval_s).powi(2);
+        let sb = (b.delta_s / req.interval_s).powi(2);
+        sa.partial_cmp(&sb).unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     info!(count = results.len(), "search results");
     Json(results).into_response()
