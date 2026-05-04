@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Extract climbs from OSM PBF + DEM and insert into the segments table.
+"""Extract climbs from OSM PBF + DEM and insert into the climbs table.
 
 Not idempotent: re-running on the same input will create duplicate rows.
 
@@ -10,8 +10,8 @@ Example:
         --db postgres://postgres:pw@localhost/intfnd
 
 TODO:
-1. check all nodes if they are ports maybe becuase intersecting with some other road maybe climb but this very much super grows complexity
-2. have osm links undercut to debug or hold in db and create api for chain debugging?
+intersect more than 2 climbs
+score calc
 """
 import argparse
 import json
@@ -81,12 +81,27 @@ class DetectedClimb:
     """A climb produced by the detector, with the provenance needed to combine it with others."""
     climb: Climb
     name: str
-    surface: str
+    surfaces: list[str]
     highway: str
+    osm_way_ids: list[int]
+    bidirectional: bool
+    elevation_profile: list[float]
     # Original (lng, lat) chain nodes covering the climb, ordered ascending (low → high).
     # Empty for climbs that themselves resulted from a combination — combinations are terminal.
     nodes: list[tuple[float, float]]
+    node_way_ids: list[int]
+    node_surfaces: list[str]
     is_combination: bool = False
+
+
+def unique_in_order(items):
+    seen = set()
+    out = []
+    for x in items:
+        if x not in seen:
+            seen.add(x)
+            out.append(x)
+    return out
 
 
 @dataclass
@@ -147,6 +162,8 @@ def load_ways(pbf_path: str) -> list[Way]:
 class Chain:
     way_ids: list[int]
     coords: list[tuple[float, float]]  # (lng, lat) deduped at way boundaries
+    coord_way_ids: list[int]  # parallel to coords: which way each coord came from
+    coord_surfaces: list[str]  # parallel to coords: resolved surface class per coord
     name: str | None
     ref: str | None
     highway: str
@@ -255,12 +272,20 @@ def build_chains(ways: list[Way]) -> list[Chain]:
 
         # Concatenate coords, deduping the shared boundary node between adjacent ways.
         combined: list[tuple[float, float]] = []
+        combined_way_ids: list[int] = []
+        combined_surfaces: list[str] = []
         for k, (way_idx, rev) in enumerate(ordered):
             seg = ways[way_idx].coords if not rev else list(reversed(ways[way_idx].coords))
+            wid = ways[way_idx].id
+            surf = ways[way_idx].surface
             if k == 0:
                 combined.extend(seg)
+                combined_way_ids.extend([wid] * len(seg))
+                combined_surfaces.extend([surf] * len(seg))
             else:
                 combined.extend(seg[1:])
+                combined_way_ids.extend([wid] * (len(seg) - 1))
+                combined_surfaces.extend([surf] * (len(seg) - 1))
 
         members = [ways[i] for i, _ in ordered]
         highway = Counter(m.highway for m in members).most_common(1)[0][0]
@@ -272,6 +297,8 @@ def build_chains(ways: list[Way]) -> list[Chain]:
             Chain(
                 way_ids=[ways[i].id for i, _ in ordered],
                 coords=combined,
+                coord_way_ids=combined_way_ids,
+                coord_surfaces=combined_surfaces,
                 name=seed_way.name or (names[0] if names else None),
                 ref=seed_way.ref,
                 highway=highway,
@@ -445,7 +472,7 @@ def chain_display_name(chain: Chain) -> str:
     return "Unnamed climb"
 
 
-def to_segment_row(dc: DetectedClimb) -> dict:
+def to_climb_row(dc: DetectedClimb) -> dict:
     return {
         "name": dc.name,
         "distance": float(dc.climb.length_m),
@@ -453,7 +480,12 @@ def to_segment_row(dc: DetectedClimb) -> dict:
         "start_lat": float(dc.climb.coords[0][0]),
         "start_lng": float(dc.climb.coords[0][1]),
         "polyline": polyline_lib.encode(dc.climb.coords),
-        "surface": dc.surface,
+        "surfaces": list(dc.surfaces),
+        "is_paved": bool(all(map(lambda s: s in ASPHALT_SURFACES, dc.surfaces))),
+        "elevation_profile": [float(x) for x in dc.elevation_profile],
+        "osm_way_ids": [int(x) for x in dc.osm_way_ids],
+        "bidirectional": bool(dc.bidirectional),
+        "score": 0.0,
     }
 
 
@@ -567,6 +599,8 @@ def rotate_loop_chain(chain: Chain, dem) -> Chain:
     if len(chain.coords) < 3 or chain.coords[0] != chain.coords[-1]:
         return chain
     interior = chain.coords[:-1]
+    interior_wids = chain.coord_way_ids[:-1]
+    interior_surfs = chain.coord_surfaces[:-1]
     lngs = np.array([c[0] for c in interior])
     lats = np.array([c[1] for c in interior])
     elev = sample_elevation(dem, lats, lngs)
@@ -577,9 +611,15 @@ def rotate_loop_chain(chain: Chain, dem) -> Chain:
         return chain
     rotated = list(interior[k:]) + list(interior[:k])
     rotated.append(rotated[0])
+    rotated_wids = list(interior_wids[k:]) + list(interior_wids[:k])
+    rotated_wids.append(rotated_wids[0])
+    rotated_surfs = list(interior_surfs[k:]) + list(interior_surfs[:k])
+    rotated_surfs.append(rotated_surfs[0])
     return Chain(
         way_ids=chain.way_ids,
         coords=rotated,
+        coord_way_ids=rotated_wids,
+        coord_surfaces=rotated_surfs,
         name=chain.name,
         ref=chain.ref,
         highway=chain.highway,
@@ -604,15 +644,16 @@ def cumulative_distances(coords: list[tuple[float, float]]) -> list[float]:
 
 
 def chain_node_slice(
-    chain_coords: list[tuple[float, float]],
+    chain: Chain,
     chain_cum: list[float],
     chain_total: float,
     p_cum: np.ndarray,
     ti: int,
     pi: int,
     reversed_pass: bool,
-) -> list[tuple[float, float]]:
-    """Original chain nodes (lng, lat) covering a climb's resampled range, ordered ascending.
+) -> tuple[list[tuple[float, float]], list[int], list[str]]:
+    """Original chain nodes (lng, lat) covering a climb's resampled range, ordered ascending,
+    along with the parallel way_id and resolved surface for each node.
 
     For the reverse pass, the resampled cumulative distances are measured from the
     chain's end, so we mirror them back into chain-forward space and then reverse
@@ -625,10 +666,19 @@ def chain_node_slice(
         e = chain_total - start_d
     else:
         s, e = start_d, end_d
-    nodes = [c for c, cd in zip(chain_coords, chain_cum) if s <= cd <= e]
+    nodes: list[tuple[float, float]] = []
+    wids: list[int] = []
+    surfs: list[str] = []
+    for c, wid, surf, cd in zip(chain.coords, chain.coord_way_ids, chain.coord_surfaces, chain_cum):
+        if s <= cd <= e:
+            nodes.append(c)
+            wids.append(wid)
+            surfs.append(surf)
     if reversed_pass:
         nodes.reverse()
-    return nodes
+        wids.reverse()
+        surfs.reverse()
+    return nodes, wids, surfs
 
 
 def combo_name(a_name: str, b_name: str) -> str:
@@ -680,9 +730,12 @@ def build_combinations(
                     continue
 
                 combined_nodes = a.nodes[: pa + 1] + b.nodes[pb + 1 :]
+                combined_node_way_ids = a.node_way_ids[: pa + 1] + b.node_way_ids[pb + 1 :]
+                combined_node_surfaces = a.node_surfaces[: pa + 1] + b.node_surfaces[pb + 1 :]
                 if len(combined_nodes) < 2:
                     continue
-                combined_total = way_length_m(combined_nodes)
+                combined_node_cum = cumulative_distances(combined_nodes)
+                combined_total = combined_node_cum[-1]
                 if combined_total < args.min_length:
                     continue
 
@@ -698,13 +751,8 @@ def build_combinations(
                 elev = smooth(elev, args.smooth_window, args.sample_step)
 
                 # Where the junction sits on the combined polyline.
-                junction_dist = way_length_m(combined_nodes[: pa + 1])
+                junction_dist = combined_node_cum[pa]
 
-                surface = (
-                    "non_asphalt"
-                    if a.surface == "non_asphalt" or b.surface == "non_asphalt"
-                    else "asphalt"
-                )
                 highway = a.highway if a.highway == b.highway else f"{a.highway}+{b.highway}"
                 name = combo_name(a.name, b.name)
 
@@ -718,12 +766,25 @@ def build_combinations(
                     end_d = float(cum[pi])
                     if not (start_d <= junction_dist <= end_d):
                         continue
+                    climb_wids: list[int] = []
+                    climb_surfs: list[str] = []
+                    for cw, cs, cd in zip(
+                        combined_node_way_ids, combined_node_surfaces, combined_node_cum
+                    ):
+                        if start_d <= cd <= end_d:
+                            climb_wids.append(cw)
+                            climb_surfs.append(cs)
                     dc = DetectedClimb(
                         climb=climb,
                         name=name,
-                        surface=surface,
+                        surfaces=unique_in_order(climb_surfs),
                         highway=highway,
+                        osm_way_ids=unique_in_order(climb_wids),
+                        bidirectional=False,
+                        elevation_profile=[float(x) for x in elev[ti : pi + 1]],
                         nodes=[],
+                        node_way_ids=[],
+                        node_surfaces=[],
                         is_combination=True,
                     )
                     out.append(dc)
@@ -883,18 +944,31 @@ def debug_chain(chain: Chain, ways_by_id: dict[int, Way], dem, args) -> None:
         print(f"  plot saved: {out_path}")
 
 
-def insert_segments(rows: list[dict], dsn: str) -> None:
+def insert_climbs(rows: list[dict], dsn: str) -> None:
     if not rows:
         return
     with psycopg.connect(dsn) as conn:
         with conn.cursor() as cur:
             cur.executemany(
                 """
-                INSERT INTO segments
-                    (name, distance, average_grade, start_lat, start_lng, polyline, surface)
+                INSERT INTO climbs
+                    (name, distance, average_grade, start_lat, start_lng, polyline,
+                     surfaces, elevation_profile, osm_way_ids, bidirectional, score, is_paved)
                 VALUES
                     (%(name)s, %(distance)s, %(average_grade)s,
-                     %(start_lat)s, %(start_lng)s, %(polyline)s, %(surface)s)
+                     %(start_lat)s, %(start_lng)s, %(polyline)s,
+                     %(surfaces)s, %(elevation_profile)s, %(osm_way_ids)s,
+                     %(bidirectional)s, %(score)s, %(is_paved)s)
+                ON CONFLICT (start_lat, start_lng, osm_way_ids)
+                DO UPDATE SET
+                    name = %(name)s,
+                    distance = %(distance)s,
+                    polyline = %(polyline)s,
+                    surfaces = %(surfaces)s,
+                    elevation_profile = %(elevation_profile)s,
+                    bidirectional = %(bidirectional)s,
+                    score = %(score)s,
+                    is_paved = %(is_paved)s
                 """,
                 rows,
             )
@@ -1020,16 +1094,21 @@ def main() -> int:
                     p_lats, p_lngs, p_cum, p_elev,
                     args.min_length, args.min_grade, args.min_gain, args.prominence,
                 ):
-                    nodes = chain_node_slice(
-                        chain.coords, chain_cum, chain_total,
+                    nodes, node_wids, node_surfs = chain_node_slice(
+                        chain, chain_cum, chain_total,
                         p_cum, ti, pi, reversed_pass,
                     )
                     dc = DetectedClimb(
                         climb=climb,
                         name=chain_name,
-                        surface=chain.surface,
+                        surfaces=unique_in_order(node_surfs),
                         highway=chain.highway,
+                        osm_way_ids=unique_in_order(node_wids),
+                        bidirectional=chain.bidirectional,
+                        elevation_profile=[float(x) for x in p_elev[ti : pi + 1]],
                         nodes=nodes,
+                        node_way_ids=node_wids,
+                        node_surfaces=node_surfs,
                     )
                     detected.append(dc)
                     highway_counts[chain.highway] = highway_counts.get(chain.highway, 0) + 1
@@ -1066,7 +1145,7 @@ def main() -> int:
     finally:
         dem.close()
 
-    rows = [to_segment_row(dc) for dc in detected]
+    rows = [to_climb_row(dc) for dc in detected]
     lengths = [dc.climb.length_m for dc in detected]
     grades = [dc.climb.grade for dc in detected]
 
@@ -1096,8 +1175,8 @@ def main() -> int:
         log.info("--dry-run: not inserting")
         return 0
 
-    log.info("inserting %d segments", len(rows))
-    insert_segments(rows, args.db)
+    log.info("inserting %d climbs", len(rows))
+    insert_climbs(rows, args.db)
     log.info("done")
     return 0
 

@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use tracing::{error, info};
 use uuid::Uuid;
 
-use crate::{models::Segment, physics, AppState};
+use crate::{models::Climb, physics, AppState};
 
 #[derive(Deserialize)]
 pub struct SearchRequest {
@@ -30,8 +30,12 @@ pub struct SearchResult {
     pub delta_s: f64,
     pub start_lat: f64,
     pub start_lng: f64,
+
+    // used later
     pub polyline: Option<String>,
-    pub surface: String,
+    pub surfaces: Vec<String>,
+    pub is_paved: bool,
+    pub score: f64,
 }
 
 pub async fn search(
@@ -40,9 +44,9 @@ pub async fn search(
 ) -> Response {
     info!(lat = req.lat, lng = req.lng, radius_m = req.radius_m, weight_kg = req.weight_kg, power_w = req.power_w, interval_s = req.interval_s, "search request");
 
-    let segments = match sqlx::query_as::<_, Segment>(
-        "SELECT id, name, distance, average_grade, start_lat, start_lng, polyline, surface
-         FROM segments
+    let climbs = match sqlx::query_as::<_, Climb>(
+        "SELECT id, name, distance, average_grade, start_lat, start_lng, polyline, surfaces, is_paved, score
+         FROM climbs
          WHERE ST_DWithin(
              ST_MakePoint(start_lng, start_lat)::geography,
              ST_MakePoint($1, $2)::geography,
@@ -62,7 +66,7 @@ pub async fn search(
         }
     };
 
-    let mut results: Vec<SearchResult> = segments
+    let mut results: Vec<SearchResult> = climbs
         .into_iter()
         .filter_map(|seg| {
             let t = physics::estimated_time(
@@ -71,8 +75,9 @@ pub async fn search(
                 req.weight_kg,
                 req.power_w,
             )?;
-            let margin = req.interval_s * 0.1;
-            if t < req.interval_s - margin {
+            let margin_bottom = req.interval_s * 0.05;
+            // let margin_top = req.interval_s * 0.4;
+            if t < req.interval_s - margin_bottom {
                 return None;
             }
             Some(SearchResult {
@@ -85,14 +90,17 @@ pub async fn search(
                 start_lat: seg.start_lat,
                 start_lng: seg.start_lng,
                 polyline: seg.polyline,
-                surface: seg.surface,
+                surfaces: seg.surfaces,
+                score: seg.score,
+                is_paved: seg.is_paved,
             })
         })
         .collect();
 
+    const LAMBDA: f64 = 0.3;
     results.sort_by(|a, b| {
-        let sa = (a.delta_s / req.interval_s).powi(2);
-        let sb = (b.delta_s / req.interval_s).powi(2);
+        let sa = (a.delta_s / req.interval_s).powi(2) + LAMBDA * a.score;
+        let sb = (b.delta_s / req.interval_s).powi(2) + LAMBDA * b.score;
         sa.partial_cmp(&sb).unwrap_or(std::cmp::Ordering::Equal)
     });
 

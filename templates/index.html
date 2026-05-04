@@ -272,7 +272,7 @@
     const resultsEl = document.getElementById('results');
     const asphaltOnly = document.getElementById('asphalt-only').checked;
     const filtered = asphaltOnly
-      ? lastResults.filter(s => s.surface === 'asphalt')
+      ? lastResults.filter(s => s.is_paved === true)
       : lastResults;
 
     if (!lastResults.length) {
