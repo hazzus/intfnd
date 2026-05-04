@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>intfnd · about</title>
+  <link rel="icon" type="image/png" href="/icon.png">
+  <script>
+    window.MathJax = {
+      tex: { inlineMath: [['\\(', '\\)']], displayMath: [['$$', '$$']] },
+      svg: { fontCache: 'global' }
+    };
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js" id="MathJax-script" async></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: monospace;
+      background: #f0f0f0;
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+      color: #222;
+    }
+
+    /* ── header (shared with index) ── */
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 20px;
+      height: 52px;
+      background: #fff;
+      border-bottom: 1px solid #ddd;
+      flex-shrink: 0;
+    }
+    .logo { display: flex; align-items: center; gap: 8px; font-size: 1.1rem; font-weight: bold; color: #222; text-decoration: none; }
+    .logo img { width: 24px; height: 24px; }
+    nav.tabs { display: flex; gap: 4px; }
+    nav.tabs a {
+      padding: 6px 14px;
+      font-size: 0.85rem;
+      color: #555;
+      text-decoration: none;
+      border-radius: 4px;
+    }
+    nav.tabs a:hover { background: #f4f4f4; color: #222; }
+    nav.tabs a.active { background: #fc4c02; color: #fff; }
+
+    /* ── content ── */
+    main {
+      flex: 1;
+      display: flex;
+      justify-content: center;
+      padding: 32px 20px 64px;
+    }
+    .content {
+      max-width: 760px;
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 28px;
+    }
+
+    h1 {
+      font-size: 1.6rem;
+      font-weight: bold;
+    }
+    h2 {
+      font-size: 1.1rem;
+      font-weight: bold;
+      border-bottom: 1px solid #ddd;
+      padding-bottom: 6px;
+      margin-top: 8px;
+    }
+    p { font-size: 0.92rem; line-height: 1.55; color: #333; }
+    a.inline { color: #fc4c02; text-decoration: none; }
+    a.inline:hover { text-decoration: underline; }
+
+    section { display: flex; flex-direction: column; gap: 12px; }
+
+    .card {
+      background: #fff;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      padding: 14px 18px;
+    }
+
+    table.constants {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.88rem;
+      background: #fff;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    table.constants th, table.constants td {
+      padding: 9px 14px;
+      text-align: left;
+      border-bottom: 1px solid #eee;
+    }
+    table.constants tr:last-child th, table.constants tr:last-child td { border-bottom: none; }
+    table.constants th {
+      background: #fafafa;
+      font-weight: bold;
+      width: 22%;
+    }
+    table.constants td.val { width: 22%; color: #fc4c02; font-weight: bold; }
+    table.constants td.note { color: #666; font-size: 0.82rem; }
+
+    .formula {
+      background: #fff;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      padding: 12px 16px;
+      overflow-x: auto;
+    }
+    .formula + p.caption {
+      font-size: 0.8rem;
+      color: #666;
+      margin-top: -4px;
+      padding-left: 4px;
+    }
+
+    .contact-list { display: flex; flex-direction: column; gap: 6px; font-size: 0.92rem; }
+    .contact-list a { color: #fc4c02; text-decoration: none; }
+    .contact-list a:hover { text-decoration: underline; }
+
+    footer {
+      text-align: center;
+      padding: 16px;
+      font-size: 0.78rem;
+      color: #888;
+      border-top: 1px solid #ddd;
+      background: #fff;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <a href="/" class="logo"><img src="/icon.png" alt="">intfnd</a>
+  <nav class="tabs">
+    <a href="/">Search</a>
+    <a href="/about" class="active">About</a>
+    <a href="#">Explore</a>
+  </nav>
+</header>
+
+<main>
+  <div class="content">
+
+    <section>
+      <h1>About intfnd</h1>
+      <p>
+        <strong>intfnd</strong> helps cyclists pick the best road segment to ride a target
+        interval on. You drop a pin on the map, set a search radius, and tell the app your
+        system weight, sustainable power, and how long you want the effort to last. The app
+        searches OpenStreetMap-derived climbs in that area and ranks them by how closely the
+        predicted ride time matches your target interval — so a 5-minute VO₂max effort lands on
+        a climb you can actually finish in roughly 5 minutes at your power.
+      </p>
+      <p>
+        Segment data is imported from OpenStreetMap once per region. Ride times are estimated
+        with a standard three-force cycling power model (gravity, rolling resistance, and
+        aerodynamic drag), solved numerically for steady-state speed.
+      </p>
+    </section>
+
+    <section>
+      <h2>Physics model</h2>
+      <p>
+        The total resistive force on a moving cyclist is the sum of three components: gravity
+        (positive uphill, negative downhill), rolling resistance (always opposing motion), and
+        aerodynamic drag (quadratic in velocity).
+      </p>
+
+      <div class="formula">
+        $$ F_\text{gravity} = m \cdot g \cdot s $$
+      </div>
+      <p class="caption">Gravity force, where \(s\) is grade as a decimal (e.g. 6 % → 0.06).</p>
+
+      <div class="formula">
+        $$ F_\text{rolling} = m \cdot g \cdot C_\text{rr} $$
+      </div>
+      <p class="caption">Rolling resistance — independent of speed in this model.</p>
+
+      <div class="formula">
+        $$ F_\text{aero} = \tfrac{1}{2} \cdot \rho \cdot C_\text{d}A \cdot v^{2} $$
+      </div>
+      <p class="caption">Aerodynamic drag — the dominant cost on flat terrain.</p>
+
+      <p>
+        Mechanical power at the wheel equals the total resistive force times velocity. After
+        subtracting drivetrain losses, this gives the steady-state power equation we solve for
+        \(v\):
+      </p>
+
+      <div class="formula">
+        $$ P \cdot \eta \;=\; \left( m \cdot g \cdot s \;+\; m \cdot g \cdot C_\text{rr} \;+\; \tfrac{1}{2} \cdot \rho \cdot C_\text{d}A \cdot v^{2} \right) \cdot v $$
+      </div>
+
+      <p>
+        Rearranged, this is a cubic in \(v\):
+      </p>
+
+      <div class="formula">
+        $$ \tfrac{1}{2} \cdot \rho \cdot C_\text{d}A \cdot v^{3} \;+\; \left( m \cdot g \cdot s + m \cdot g \cdot C_\text{rr} \right) v \;-\; P \cdot \eta \;=\; 0 $$
+      </div>
+
+      <p>
+        The app solves this with Newton's method (up to 64 iterations, residual tolerance
+        \(10^{-9}\)), then converts to ride time:
+      </p>
+
+      <div class="formula">
+        $$ t = \frac{d}{v} $$
+      </div>
+    </section>
+
+    <section>
+      <h2>Constants used</h2>
+      <table class="constants">
+        <tr>
+          <th>\(g\)</th>
+          <td class="val">9.81 m/s²</td>
+          <td class="note">gravitational acceleration</td>
+        </tr>
+        <tr>
+          <th>\(C_\text{rr}\)</th>
+          <td class="val">0.004</td>
+          <td class="note">rolling resistance coefficient — road tire on pavement</td>
+        </tr>
+        <tr>
+          <th>\(\rho\)</th>
+          <td class="val">1.225 kg/m³</td>
+          <td class="note">air density at sea level, 15 °C</td>
+        </tr>
+        <tr>
+          <th>\(C_\text{d}A\)</th>
+          <td class="val">0.32 m²</td>
+          <td class="note">drag coefficient × frontal area — road cyclist on the hoods</td>
+        </tr>
+        <tr>
+          <th>\(\eta\)</th>
+          <td class="val">0.95</td>
+          <td class="note">drivetrain efficiency — 5 % loss in chain and bearings</td>
+        </tr>
+      </table>
+      <p>
+        These values are reasonable defaults for a fit recreational rider on a road bike. They
+        are not tuned per user — your real ride times will vary with wind, position, tire
+        pressure, surface, and equipment.
+      </p>
+    </section>
+
+    <section>
+      <h2>Caveats</h2>
+      <p>
+        The model assumes constant power, no wind, dry pavement, and steady-state speed (no
+        acceleration). Short, punchy efforts and very steep grades where you'd be out of the
+        saddle will deviate the most from the prediction. Treat the estimated time as a
+        ranking signal, not a stopwatch.
+      </p>
+    </section>
+
+    <section>
+      <h2>Contact</h2>
+      <div class="card contact-list">
+        <span>Questions, feedback, or bug reports:</span>
+        <a href="mailto:dfa.sro591@gmail.com">dfa.sro591@gmail.com</a>
+      </div>
+    </section>
+
+  </div>
+</main>
+
+<footer>intfnd · find the best segment for your interval</footer>
+
+</body>
+</html>

@@ -29,9 +29,18 @@
       border-bottom: 1px solid #ddd;
       flex-shrink: 0;
     }
-    .logo { display: flex; align-items: center; gap: 8px; font-size: 1.1rem; font-weight: bold; color: #222; }
+    .logo { display: flex; align-items: center; gap: 8px; font-size: 1.1rem; font-weight: bold; color: #222; text-decoration: none; }
     .logo img { width: 24px; height: 24px; }
-    .tagline { font-size: 0.78rem; color: #888; }
+    nav.tabs { display: flex; gap: 4px; }
+    nav.tabs a {
+      padding: 6px 14px;
+      font-size: 0.85rem;
+      color: #555;
+      text-decoration: none;
+      border-radius: 4px;
+    }
+    nav.tabs a:hover { background: #f4f4f4; color: #222; }
+    nav.tabs a.active { background: #fc4c02; color: #fff; }
 
     /* ── main ── */
     main {
@@ -136,8 +145,12 @@
 <body>
 
 <header>
-  <span class="logo"><img src="/icon.png" alt="">intfnd</span>
-  <span class="tagline">find the best segment for your interval</span>
+  <a href="/" class="logo"><img src="/icon.png" alt="">intfnd</a>
+  <nav class="tabs">
+    <a href="/" class="active">Search</a>
+    <a href="/about">About</a>
+    <a href="#">Explore</a>
+  </nav>
 </header>
 
 <main>

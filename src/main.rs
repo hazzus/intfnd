@@ -37,6 +37,7 @@ async fn main() -> anyhow::Result<()> {
 
     let app = Router::new()
         .route("/", get(routes::pages::index))
+        .route("/about", get(routes::pages::about))
         .route("/icon.png", get(routes::pages::icon))
         .route("/api/search", post(routes::search::search))
         .with_state(state);
