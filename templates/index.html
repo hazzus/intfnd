@@ -116,8 +116,23 @@
       padding: 10px 12px;
     }
     .result-header { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
-    .result-name { font-size: 0.9rem; font-weight: bold; color: #222; text-decoration: none; }
-    .result-name:hover { color: #fc4c02; text-decoration: underline; }
+    .result-name {
+      font-size: 0.9rem;
+      font-weight: bold;
+      color: #fc4c02;
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+    .result-name::after { content: ' →'; font-weight: normal; }
+    .result-name:hover { color: #b73600; }
+    .result-card { cursor: pointer; transition: border-color 0.1s, box-shadow 0.1s; }
+    .result-card:hover { border-color: #fc4c02; box-shadow: 0 1px 4px rgba(252, 76, 2, 0.18); }
+    .results-hint {
+      font-size: 0.75rem;
+      color: #777;
+      padding: 2px 2px 4px;
+      border-bottom: 1px dashed #ddd;
+    }
     .surface-tag {
       font-size: 0.7rem;
       padding: 2px 6px;
@@ -308,12 +323,12 @@
       return;
     }
 
-    resultsEl.innerHTML = filtered.map((s, i) => {
+    const cardsHtml = filtered.map((s, i) => {
       const delta = Math.round(s.delta_s);
       const deltaStr = (delta >= 0 ? '+' : '') + delta + 's';
       const surfaceLabel = s.is_paved ? 'paved' : 'unpaved';
       return `
-      <div class="result-card" data-idx="${i}">
+      <div class="result-card" data-idx="${i}" data-id="${s.id}">
         <div class="result-header">
           <a class="result-name" href="/climb/${s.id}">${s.name}</a>
           <span class="surface-tag surface-${surfaceLabel}">${surfaceLabel}</span>
@@ -323,14 +338,22 @@
           ${s.average_grade.toFixed(1)}% &nbsp;·&nbsp;
           ${formatTime(s.estimated_time_s)} &nbsp;·&nbsp;
           ${deltaStr} &nbsp;·&nbsp;
-          ${Math.trunc(s.score * 100)} score
+          ${Math.trunc(100 - s.score * 100)} score
         </div>
       </div>
       `;
     }).join('');
 
+    resultsEl.innerHTML =
+      `<p class="results-hint">hover to preview, click to see climb details</p>` +
+      cardsHtml;
+
     resultsEl.querySelectorAll('.result-card').forEach(card => {
       const s = filtered[+card.dataset.idx];
+      card.addEventListener('click', e => {
+        if (e.target.closest('a')) return;
+        window.location.href = `/climb/${card.dataset.id}`;
+      });
       card.addEventListener('mouseenter', () => {
         clearHover();
         if (s.polyline) {
@@ -353,6 +376,15 @@
   }
 
   document.getElementById('paved-only').addEventListener('change', renderResults);
+
+  ['weight', 'power', 'interval'].forEach(id => {
+    document.getElementById(id).addEventListener('keydown', e => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        document.getElementById('find-btn').click();
+      }
+    });
+  });
 
   document.getElementById('find-btn').addEventListener('click', async () => {
     const weight   = parseFloat(document.getElementById('weight').value);

@@ -261,6 +261,72 @@
     </section>
 
     <section>
+      <h2>Result ranking</h2>
+      <p>
+        Search results are sorted by a combined rank where <strong>lower is better</strong>.
+        It blends how far the predicted ride time is from your target interval with the
+        climb's quality score:
+      </p>
+
+      <div class="formula">
+        $$ \text{rank} \;=\; \left(\tfrac{\Delta t}{T}\right)^{\!2} \;+\; 0.3 \cdot \left(1 - \tfrac{\text{score}}{100}\right) $$
+      </div>
+      <p class="caption">
+        \(\Delta t = t_\text{est} - T\) is the gap between the predicted ride time and your
+        target interval \(T\). Squaring penalises symmetric over- and under-shoots equally,
+        and grows fast for poor matches. A higher quality score lowers the rank, pushing
+        better climbs up the list.
+      </p>
+
+      <p>
+        A planned distance term (rewarding climbs closer to the pin) is reserved in the
+        formula but currently fixed at zero.
+      </p>
+    </section>
+
+    <section>
+      <h2>Climb quality score</h2>
+      <p>
+        Every climb has a precomputed quality score from <strong>0 to 100, higher is
+        better</strong>. The score starts at 100 and is reduced by three penalties a rider
+        would feel on a sustained effort:
+      </p>
+
+      <div class="formula">
+        $$ \text{score} \;=\; 100 \cdot \bigl(1 \;-\; 0.4 \cdot p_\text{inter} \;-\; 0.3 \cdot p_\text{turn} \;-\; 0.3 \cdot p_\text{spike}\bigr) $$
+      </div>
+      <p class="caption">
+        Each penalty term \(p_\text{x} \in [0, 1]\); a clean climb has them all near 0
+        and scores close to 100, a bad one approaches 0.
+      </p>
+
+      <p>
+        <strong>Intersection density</strong> — count of OSM nodes along the climb that are
+        real junctions (degree ≥ 3 in the cyclable network), normalised against a target of
+        4 intersections per km:
+      </p>
+      <div class="formula">
+        $$ p_\text{inter} \;=\; \min\!\left(1,\; \tfrac{N_\text{inter} / L_\text{km}}{4}\right) $$
+      </div>
+
+      <p>
+        <strong>Average turn sharpness</strong> at those intersections — mean absolute change
+        in bearing entering vs. leaving each junction node, normalised against 90°:
+      </p>
+      <div class="formula">
+        $$ p_\text{turn} \;=\; \min\!\left(1,\; \tfrac{\overline{|\Delta\theta|}}{90°}\right) $$
+      </div>
+
+      <p>
+        <strong>Grade variability</strong> — standard deviation of point-to-point grade on the
+        smoothed elevation profile, normalised against 5 %:
+      </p>
+      <div class="formula">
+        $$ p_\text{spike} \;=\; \min\!\left(1,\; \tfrac{\sigma(\text{grade})}{0.05}\right) $$
+      </div>
+    </section>
+
+    <section>
       <h2>Caveats</h2>
       <p>
         The model assumes constant power, no wind, dry pavement, and steady-state speed (no

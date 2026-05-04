@@ -125,6 +125,14 @@
     .stat-label { font-size: 0.72rem; color: #888; text-transform: uppercase; letter-spacing: 0.04em; }
     .stat-value { font-size: 0.95rem; color: #222; font-weight: bold; }
 
+    .score-note {
+      font-size: 0.72rem;
+      color: #888;
+      line-height: 1.4;
+      padding: 0 2px;
+      opacity: 0.85;
+    }
+
     .surfaces-list {
       background: #fff;
       border: 1px solid #ddd;
@@ -315,9 +323,10 @@
         </div>
         <div class="stat">
           <span class="stat-label">score</span>
-          <span class="stat-value">${Math.trunc(c.score * 100)}</span>
+          <span class="stat-value">${Math.trunc(100 - c.score * 100)}</span>
         </div>
       </div>
+      <p class="score-note">score (0–100, higher is better) reflects climb quality — penalises intersections, uneven gradient and sharp turns.</p>
       ${surfacesHtml}
       ${osmHtml}
     `;
