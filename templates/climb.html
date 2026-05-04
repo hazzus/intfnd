@@ -145,6 +145,40 @@
       border: 1px solid #e4e4e4;
     }
 
+    .osm-source {
+      background: #fff;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      padding: 8px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .osm-source-label { font-size: 0.72rem; color: #888; text-transform: uppercase; letter-spacing: 0.04em; }
+    .osm-links { display: flex; flex-wrap: wrap; gap: 4px; }
+    .osm-link {
+      font-size: 0.72rem;
+      padding: 2px 6px;
+      border-radius: 3px;
+      background: #fff5ef;
+      color: #fc4c02;
+      border: 1px solid #fcd9c5;
+      text-decoration: none;
+    }
+    .osm-link:hover { background: #fc4c02; color: #fff; border-color: #fc4c02; }
+
+    #climb-info {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .climb-header {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
     .chart-title { font-size: 0.78rem; color: #666; text-transform: uppercase; letter-spacing: 0.04em; }
     #chart-wrap {
       flex: 1;
@@ -251,8 +285,18 @@
         </div>`
       : '';
 
+    const osmHtml = (c.osm_way_ids && c.osm_way_ids.length)
+      ? `
+        <div class="osm-source">
+          <span class="osm-source-label">OSM source</span>
+          <div class="osm-links">
+            ${c.osm_way_ids.map(id => `<a class="osm-link" href="https://www.openstreetmap.org/way/${id}" target="_blank" rel="noopener">way ${id}</a>`).join('')}
+          </div>
+        </div>`
+      : '';
+
     document.getElementById('climb-info').innerHTML = `
-      <div style="display:flex; align-items:baseline; justify-content:space-between; gap:8px; margin-bottom: 6px;">
+      <div class="climb-header">
         <span class="climb-name">${c.name}</span>
         <span class="surface-tag surface-${surfaceLabel}">${surfaceLabel}</span>
       </div>
@@ -275,6 +319,7 @@
         </div>
       </div>
       ${surfacesHtml}
+      ${osmHtml}
     `;
   }
 

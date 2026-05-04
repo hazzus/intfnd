@@ -192,12 +192,22 @@
     maxZoom: 19,
   }).addTo(map);
 
-  navigator.geolocation
-    ? navigator.geolocation.getCurrentPosition(
-        p => map.setView([p.coords.latitude, p.coords.longitude], 13),
-        () => map.setView([51.505, -0.09], 13)
-      )
-    : map.setView([51.505, -0.09], 13);
+  const SAVED_KEY = 'intfnd:lastSearch';
+  const saved = (() => {
+    try { return JSON.parse(sessionStorage.getItem(SAVED_KEY)); }
+    catch { return null; }
+  })();
+
+  if (saved && saved.pin) {
+    map.setView([saved.pin.lat, saved.pin.lng], 13);
+  } else if (navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(
+      p => map.setView([p.coords.latitude, p.coords.longitude], 13),
+      () => map.setView([51.505, -0.09], 13)
+    );
+  } else {
+    map.setView([51.505, -0.09], 13);
+  }
 
   // ── pin + circle ───────────────────────────────────────────
   let pinLatLng = null;
@@ -382,6 +392,13 @@
 
       lastResults = await res.json();
       renderResults();
+      sessionStorage.setItem(SAVED_KEY, JSON.stringify({
+        pin: { lat: pinLatLng.lat, lng: pinLatLng.lng },
+        radius: circleRadius,
+        weight, power, interval,
+        pavedOnly: document.getElementById('paved-only').checked,
+        results: lastResults,
+      }));
     } catch {
       document.getElementById('results').innerHTML = '<p class="warn">⚠ Request failed.</p>';
     } finally {
@@ -389,6 +406,18 @@
       btn.textContent = 'Find';
     }
   });
+
+  if (saved) {
+    if (saved.pin) placePin(L.latLng(saved.pin.lat, saved.pin.lng), saved.radius || 2000);
+    if (saved.weight   != null) document.getElementById('weight').value   = saved.weight;
+    if (saved.power    != null) document.getElementById('power').value    = saved.power;
+    if (saved.interval != null) document.getElementById('interval').value = saved.interval;
+    if (saved.pavedOnly) document.getElementById('paved-only').checked = true;
+    if (Array.isArray(saved.results)) {
+      lastResults = saved.results;
+      renderResults();
+    }
+  }
 </script>
 </body>
 </html>

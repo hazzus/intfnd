@@ -17,7 +17,7 @@ pub async fn get_climb(
 
     let climb = sqlx::query_as::<_, ClimbDetails>(
         "SELECT id, name, distance, average_grade, start_lat, start_lng, polyline,
-                surfaces, is_paved, score, elevation_profile
+                surfaces, is_paved, score, elevation_profile, osm_way_ids
          FROM climbs
          WHERE id = $1",
     )

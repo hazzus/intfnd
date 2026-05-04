@@ -29,4 +29,5 @@ pub struct ClimbDetails {
     pub is_paved: bool,
     pub score: f64,
     pub elevation_profile: Vec<f32>,
+    pub osm_way_ids: Vec<i64>,
 }
