@@ -38,8 +38,10 @@ async fn main() -> anyhow::Result<()> {
     let app = Router::new()
         .route("/", get(routes::pages::index))
         .route("/about", get(routes::pages::about))
+        .route("/climb/{id}", get(routes::pages::climb))
         .route("/icon.png", get(routes::pages::icon))
         .route("/api/search", post(routes::search::search))
+        .route("/api/climb/{id}", get(routes::climb::get_climb))
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind(&bind_addr).await?;

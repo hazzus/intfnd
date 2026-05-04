@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>intfnd · climb</title>
+  <link rel="icon" type="image/png" href="/icon.png">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: monospace;
+      background: #f0f0f0;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* ── header ── */
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 20px;
+      height: 52px;
+      background: #fff;
+      border-bottom: 1px solid #ddd;
+      flex-shrink: 0;
+    }
+    .logo { display: flex; align-items: center; gap: 8px; font-size: 1.1rem; font-weight: bold; color: #222; text-decoration: none; }
+    .logo img { width: 24px; height: 24px; }
+    nav.tabs { display: flex; gap: 4px; }
+    nav.tabs a {
+      padding: 6px 14px;
+      font-size: 0.85rem;
+      color: #555;
+      text-decoration: none;
+      border-radius: 4px;
+    }
+    nav.tabs a:hover { background: #f4f4f4; color: #222; }
+    nav.tabs a.active { background: #fc4c02; color: #fff; }
+
+    /* ── main ── */
+    main {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    /* ── map panel ── */
+    #map-panel {
+      display: flex;
+      flex-direction: column;
+      flex: 0 0 62%;
+      border-right: 1px solid #ddd;
+    }
+    #map { flex: 1; }
+
+    /* ── info panel ── */
+    #info-panel {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    #info-top {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    #info-bottom {
+      flex: 0 0 38%;
+      border-top: 1px solid #ddd;
+      background: #fff;
+      padding: 12px 14px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      min-height: 0;
+    }
+
+    .back-link {
+      font-size: 0.8rem;
+      color: #fc4c02;
+      text-decoration: none;
+    }
+    .back-link:hover { text-decoration: underline; }
+
+    .climb-name {
+      font-size: 1.2rem;
+      font-weight: bold;
+      color: #222;
+    }
+
+    .surface-tag {
+      display: inline-block;
+      font-size: 0.7rem;
+      padding: 2px 6px;
+      border-radius: 3px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .surface-paved { background: #eef; color: #335; }
+    .surface-unpaved { background: #f5ecdf; color: #7a4a1c; }
+
+    .stats {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+    .stat {
+      background: #fff;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      padding: 8px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .stat-label { font-size: 0.72rem; color: #888; text-transform: uppercase; letter-spacing: 0.04em; }
+    .stat-value { font-size: 0.95rem; color: #222; font-weight: bold; }
+
+    .surfaces-list {
+      background: #fff;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      padding: 8px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .surfaces-label { font-size: 0.72rem; color: #888; text-transform: uppercase; letter-spacing: 0.04em; }
+    .surfaces-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+    .surface-pill {
+      font-size: 0.72rem;
+      padding: 2px 6px;
+      border-radius: 3px;
+      background: #f4f4f4;
+      color: #555;
+      border: 1px solid #e4e4e4;
+    }
+
+    .chart-title { font-size: 0.78rem; color: #666; text-transform: uppercase; letter-spacing: 0.04em; }
+    #chart-wrap {
+      flex: 1;
+      min-height: 0;
+      position: relative;
+    }
+    #elevation-chart {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+    .chart-axis { stroke: #ccc; stroke-width: 1; }
+    .chart-line { fill: none; stroke: #fc4c02; stroke-width: 2; }
+    .chart-fill { fill: rgba(252, 76, 2, 0.12); stroke: none; }
+    .chart-tick { font-size: 10px; fill: #888; font-family: monospace; }
+
+    .loading, .error {
+      font-size: 0.85rem;
+      color: #888;
+      padding: 4px 0;
+    }
+    .error { color: #c0392b; }
+  </style>
+</head>
+<body>
+
+<header>
+  <a href="/" class="logo"><img src="/icon.png" alt="">intfnd</a>
+  <nav class="tabs">
+    <a href="/" class="active">Search</a>
+    <a href="/about">About</a>
+    <a href="#">Explore</a>
+  </nav>
+</header>
+
+<main>
+  <div id="map-panel">
+    <div id="map"></div>
+  </div>
+
+  <div id="info-panel">
+    <div id="info-top">
+      <a href="/" class="back-link">← back to search</a>
+      <div id="climb-info">
+        <p class="loading">Loading…</p>
+      </div>
+    </div>
+    <div id="info-bottom">
+      <span class="chart-title">Elevation profile</span>
+      <div id="chart-wrap">
+        <svg id="elevation-chart"></svg>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+  const climbId = window.location.pathname.split('/').pop();
+
+  const map = L.map('map');
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap contributors',
+    maxZoom: 19,
+  }).addTo(map);
+  map.setView([51.505, -0.09], 13);
+
+  function decodePolyline(encoded) {
+    const pts = [];
+    let idx = 0, lat = 0, lng = 0;
+    while (idx < encoded.length) {
+      let b, shift = 0, result = 0;
+      do { b = encoded.charCodeAt(idx++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
+      lat += (result & 1) ? ~(result >> 1) : (result >> 1);
+      shift = result = 0;
+      do { b = encoded.charCodeAt(idx++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
+      lng += (result & 1) ? ~(result >> 1) : (result >> 1);
+      pts.push([lat / 1e5, lng / 1e5]);
+    }
+    return pts;
+  }
+
+  function formatTime(s) {
+    const m = Math.floor(s / 60);
+    const sec = Math.round(s % 60);
+    return `${m}:${sec.toString().padStart(2, '0')}`;
+  }
+
+  function renderInfo(c) {
+    const surfaceLabel = c.is_paved ? 'paved' : 'unpaved';
+    const distanceKm = (c.distance / 1000).toFixed(2);
+    const elev = c.elevation_profile || [];
+    const elevGain = elev.length >= 2
+      ? Math.max(0, elev[elev.length - 1] - elev[0])
+      : null;
+
+    const surfacesHtml = (c.surfaces && c.surfaces.length)
+      ? `
+        <div class="surfaces-list">
+          <span class="surfaces-label">surfaces</span>
+          <div class="surfaces-tags">
+            ${c.surfaces.map(s => `<span class="surface-pill">${s}</span>`).join('')}
+          </div>
+        </div>`
+      : '';
+
+    document.getElementById('climb-info').innerHTML = `
+      <div style="display:flex; align-items:baseline; justify-content:space-between; gap:8px; margin-bottom: 6px;">
+        <span class="climb-name">${c.name}</span>
+        <span class="surface-tag surface-${surfaceLabel}">${surfaceLabel}</span>
+      </div>
+      <div class="stats">
+        <div class="stat">
+          <span class="stat-label">distance</span>
+          <span class="stat-value">${distanceKm} km</span>
+        </div>
+        <div class="stat">
+          <span class="stat-label">avg grade</span>
+          <span class="stat-value">${c.average_grade.toFixed(1)}%</span>
+        </div>
+        <div class="stat">
+          <span class="stat-label">elev gain</span>
+          <span class="stat-value">${elevGain !== null ? elevGain.toFixed(0) + ' m' : '—'}</span>
+        </div>
+        <div class="stat">
+          <span class="stat-label">score</span>
+          <span class="stat-value">${Math.trunc(c.score * 100)}</span>
+        </div>
+      </div>
+      ${surfacesHtml}
+    `;
+  }
+
+  function renderMap(c) {
+    if (c.polyline) {
+      const pts = decodePolyline(c.polyline);
+      if (pts.length) {
+        const line = L.polyline(pts, {
+          color: '#fc4c02',
+          weight: 4,
+          opacity: 0.9,
+        }).addTo(map);
+        map.fitBounds(line.getBounds(), { padding: [30, 30] });
+      }
+    }
+    L.circleMarker([c.start_lat, c.start_lng], {
+      radius: 6,
+      color: '#fff',
+      fillColor: '#fc4c02',
+      fillOpacity: 1,
+      weight: 2,
+    }).addTo(map);
+    if (!c.polyline) {
+      map.setView([c.start_lat, c.start_lng], 14);
+    }
+  }
+
+  function renderChart(elev, distance) {
+    const svg = document.getElementById('elevation-chart');
+    svg.innerHTML = '';
+    if (!elev || elev.length < 2) {
+      svg.innerHTML = `<text x="50%" y="50%" text-anchor="middle" class="chart-tick">no elevation data</text>`;
+      return;
+    }
+    const rect = svg.getBoundingClientRect();
+    const W = rect.width;
+    const H = rect.height;
+    const padL = 38, padR = 8, padT = 8, padB = 22;
+    const innerW = Math.max(1, W - padL - padR);
+    const innerH = Math.max(1, H - padT - padB);
+
+    let minY = Infinity, maxY = -Infinity;
+    for (const v of elev) { if (v < minY) minY = v; if (v > maxY) maxY = v; }
+    if (minY === maxY) { minY -= 1; maxY += 1; }
+    const range = maxY - minY;
+
+    const n = elev.length;
+    const xAt = i => padL + (n === 1 ? 0 : (i / (n - 1)) * innerW);
+    const yAt = v => padT + (1 - (v - minY) / range) * innerH;
+
+    let path = `M ${xAt(0)} ${yAt(elev[0])}`;
+    for (let i = 1; i < n; i++) path += ` L ${xAt(i)} ${yAt(elev[i])}`;
+    const fillPath = path + ` L ${xAt(n - 1)} ${padT + innerH} L ${xAt(0)} ${padT + innerH} Z`;
+
+    const distanceKm = distance / 1000;
+    const xTicks = [
+      { frac: 0, label: '0 km' },
+      { frac: 0.5, label: (distanceKm / 2).toFixed(1) + ' km' },
+      { frac: 1, label: distanceKm.toFixed(1) + ' km' },
+    ];
+    const yTicks = [
+      { v: minY, label: minY.toFixed(0) + ' m' },
+      { v: (minY + maxY) / 2, label: ((minY + maxY) / 2).toFixed(0) + ' m' },
+      { v: maxY, label: maxY.toFixed(0) + ' m' },
+    ];
+
+    let svgInner = '';
+    svgInner += `<line class="chart-axis" x1="${padL}" y1="${padT}" x2="${padL}" y2="${padT + innerH}"/>`;
+    svgInner += `<line class="chart-axis" x1="${padL}" y1="${padT + innerH}" x2="${padL + innerW}" y2="${padT + innerH}"/>`;
+    for (const t of yTicks) {
+      const y = yAt(t.v);
+      svgInner += `<text class="chart-tick" x="${padL - 4}" y="${y + 3}" text-anchor="end">${t.label}</text>`;
+    }
+    for (const t of xTicks) {
+      const x = padL + t.frac * innerW;
+      svgInner += `<text class="chart-tick" x="${x}" y="${padT + innerH + 14}" text-anchor="middle">${t.label}</text>`;
+    }
+    svgInner += `<path class="chart-fill" d="${fillPath}"/>`;
+    svgInner += `<path class="chart-line" d="${path}"/>`;
+    svg.innerHTML = svgInner;
+  }
+
+  let currentClimb = null;
+
+  async function load() {
+    try {
+      const res = await fetch(`/api/climb/${climbId}`);
+      if (res.status === 404) {
+        document.getElementById('climb-info').innerHTML = '<p class="error">⚠ Climb not found.</p>';
+        return;
+      }
+      if (!res.ok) throw new Error('request failed');
+      const c = await res.json();
+      currentClimb = c;
+      document.title = `intfnd · ${c.name}`;
+      renderInfo(c);
+      renderMap(c);
+      renderChart(c.elevation_profile, c.distance);
+    } catch {
+      document.getElementById('climb-info').innerHTML = '<p class="error">⚠ Failed to load climb.</p>';
+    }
+  }
+
+  window.addEventListener('resize', () => {
+    if (currentClimb) renderChart(currentClimb.elevation_profile, currentClimb.distance);
+  });
+
+  load();
+</script>
+</body>
+</html>
