@@ -326,6 +326,7 @@
     const cardsHtml = filtered.map((s, i) => {
       const delta = Math.round(s.delta_s);
       const deltaStr = (delta >= 0 ? '+' : '') + delta + 's';
+      const avgKmh = (s.distance_m / s.estimated_time_s) * 3.6;
       const surfaceLabel = s.is_paved ? 'paved' : 'unpaved';
       return `
       <div class="result-card" data-idx="${i}" data-id="${s.id}">
@@ -337,6 +338,7 @@
           ${(s.distance_m / 1000).toFixed(2)} km &nbsp;·&nbsp;
           ${s.average_grade.toFixed(1)}% &nbsp;·&nbsp;
           ${formatTime(s.estimated_time_s)} &nbsp;·&nbsp;
+          ${avgKmh.toFixed(1)} km/h &nbsp;·&nbsp;
           ${deltaStr} &nbsp;·&nbsp;
           ${Math.trunc(100 - s.score * 100)} score
         </div>
