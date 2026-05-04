@@ -9,8 +9,6 @@ Example:
         --dem liechtenstein-dem.tif \\
         --db postgres://postgres:pw@localhost/intfnd
 
-TODO:
-score calc
 """
 import argparse
 import json
@@ -85,8 +83,8 @@ class DetectedClimb:
     osm_way_ids: list[int]
     bidirectional: bool
     elevation_profile: list[float]
-    # Original (lng, lat) chain nodes covering the climb, ordered ascending (low → high).
-    # Empty for climbs that themselves resulted from a combination — combinations are terminal.
+    # Original (lng, lat) OSM nodes covering the climb, ordered ascending (low → high).
+    # Used both for chaining into bigger combinations and for node-overlap deduplication.
     nodes: list[tuple[float, float]]
     node_way_ids: list[int]
     node_surfaces: list[str]
@@ -845,9 +843,9 @@ def build_combinations(
                 osm_way_ids=unique_in_order(climb_wids),
                 bidirectional=False,
                 elevation_profile=elevation_profile,
-                nodes=[],
-                node_way_ids=[],
-                node_surfaces=[],
+                nodes=climb_nodes,
+                node_way_ids=climb_wids,
+                node_surfaces=climb_surfs,
                 is_combination=True,
                 score=compute_score(
                     climb_nodes, elevation_profile, climb.length_m,
@@ -1037,6 +1035,44 @@ def debug_chain(chain: Chain, ways_by_id: dict[int, Way], dem, args) -> None:
         print(f"  plot saved: {out_path}")
 
 
+def deduplicate_climbs(
+    climbs: list[DetectedClimb], max_similarity: float
+) -> tuple[list[DetectedClimb], int]:
+    """Drop near-duplicates: pairs whose node-sets overlap by min(|A|, |B|) ≥ max_similarity.
+
+    Score is a penalty (lower = better), so the lower-scored climb survives. Visits in
+    ascending score order; each kept climb evicts its still-unprocessed neighbours.
+    """
+    if not climbs or max_similarity >= 1.0:
+        return climbs, 0
+
+    node_sets = [set(dc.nodes) for dc in climbs]
+    node_index: dict[tuple[float, float], list[int]] = defaultdict(list)
+    for i, ns in enumerate(node_sets):
+        for n in ns:
+            node_index[n].append(i)
+
+    order = sorted(range(len(climbs)), key=lambda i: climbs[i].score)
+    removed: set[int] = set()
+    for i in order:
+        if i in removed or not node_sets[i]:
+            continue
+        overlap: dict[int, int] = defaultdict(int)
+        for n in node_sets[i]:
+            for j in node_index[n]:
+                if j == i or j in removed:
+                    continue
+                overlap[j] += 1
+        size_i = len(node_sets[i])
+        for j, count in overlap.items():
+            denom = min(size_i, len(node_sets[j]))
+            if denom and count / denom >= max_similarity:
+                removed.add(j)
+
+    kept = [c for idx, c in enumerate(climbs) if idx not in removed]
+    return kept, len(removed)
+
+
 def insert_climbs(rows: list[dict], dsn: str) -> None:
     if not rows:
         return
@@ -1082,6 +1118,9 @@ def main() -> int:
     ap.add_argument("--smooth-window", type=float, default=100.0, help="Elevation smoothing window (m)")
     ap.add_argument("--prominence", type=float, default=10.0, help="Peak prominence threshold (m)")
     ap.add_argument("--max-combo", type=int, default=4, help="Max climbs to chain into a combination (>= 2)")
+    ap.add_argument("--max-similarity", type=float, default=0.85,
+                    help="Drop climbs whose node-set overlaps another's by min(|A|,|B|) >= this; "
+                         "the climb with the lower score survives. Use 1.0 to disable.")
     ap.add_argument("--dry-run", action="store_true", help="Print stats, don't insert")
     ap.add_argument("-v", "--verbose", action="store_true", help="Print each detected climb")
     ap.add_argument(
@@ -1246,6 +1285,13 @@ def main() -> int:
         detected.extend(combinations)
     finally:
         dem.close()
+
+    before = len(detected)
+    detected, dropped = deduplicate_climbs(detected, args.max_similarity)
+    log.info(
+        "deduplicated: %d → %d climbs (dropped %d at similarity >= %.2f)",
+        before, len(detected), dropped, args.max_similarity,
+    )
 
     rows = [to_climb_row(dc) for dc in detected]
     lengths = [dc.climb.length_m for dc in detected]

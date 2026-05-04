@@ -311,7 +311,8 @@
           ${(s.distance_m / 1000).toFixed(2)} km &nbsp;·&nbsp;
           ${s.average_grade.toFixed(1)}% &nbsp;·&nbsp;
           ${formatTime(s.estimated_time_s)} &nbsp;·&nbsp;
-          ${deltaStr}
+          ${deltaStr} &nbsp;·&nbsp;
+          ${Math.trunc(s.score * 100)} score
         </div>
       </div>
       `;
