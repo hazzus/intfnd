@@ -91,6 +91,7 @@ class DetectedClimb:
     node_way_ids: list[int]
     node_surfaces: list[str]
     is_combination: bool = False
+    score: float = 0.0
 
 
 def unique_in_order(items):
@@ -484,7 +485,7 @@ def to_climb_row(dc: DetectedClimb) -> dict:
         "elevation_profile": [float(x) for x in dc.elevation_profile],
         "osm_way_ids": [int(x) for x in dc.osm_way_ids],
         "bidirectional": bool(dc.bidirectional),
-        "score": 0.0,
+        "score": float(dc.score),
     }
 
 
@@ -628,6 +629,66 @@ def rotate_loop_chain(chain: Chain, dem) -> Chain:
     )
 
 
+def compute_node_degree(ways: list[Way]) -> dict[tuple[float, float], int]:
+    """Number of distinct cyclable ways touching each node coord.
+
+    Degree >= 3 is treated as a real intersection by the scorer; degree 2 is just a
+    chain continuation. OSM normally splits ways at junctions, so junction nodes
+    surface here as the endpoints shared between multiple ways.
+    """
+    node_ways: dict[tuple[float, float], set[int]] = defaultdict(set)
+    for w in ways:
+        for c in w.coords:
+            node_ways[c].add(w.id)
+    return {k: len(v) for k, v in node_ways.items()}
+
+
+def bearing(a: tuple[float, float], b: tuple[float, float]) -> float:
+    """Forward azimuth from a to b in degrees, normalised to [0, 360)."""
+    az, _, _ = GEOD.inv(a[0], a[1], b[0], b[1])
+    return az % 360.0
+
+
+def compute_score(
+    nodes: list[tuple[float, float]],
+    elevation_profile: list[float],
+    length_m: float,
+    sample_step: float,
+    node_degree: dict[tuple[float, float], int],
+) -> float:
+    """Climb quality score in [0, 1]; lower is better.
+
+    Penalises (a) intersection density along the climb, (b) average turn sharpness at
+    those intersections, and (c) point-to-point grade variability on the smoothed
+    elevation profile. Weights 0.4 / 0.3 / 0.3.
+    """
+    if length_m <= 0 or len(nodes) < 2:
+        return 1.0
+
+    intersections = 0
+    turn_sum_deg = 0.0
+    for i in range(1, len(nodes) - 1):
+        if node_degree.get(nodes[i], 0) < 3:
+            continue
+        intersections += 1
+        d = abs(bearing(nodes[i], nodes[i + 1]) - bearing(nodes[i - 1], nodes[i])) % 360.0
+        if d > 180.0:
+            d = 360.0 - d
+        turn_sum_deg += d
+
+    length_km = max(length_m / 1000.0, 0.1)
+    inter_score = min(1.0, (intersections / length_km) / 4.0)
+    turn_score = min(1.0, (turn_sum_deg / intersections) / 90.0) if intersections else 0.0
+
+    if len(elevation_profile) >= 3 and sample_step > 0:
+        step_grade = np.diff(np.asarray(elevation_profile, dtype=float)) / sample_step
+        spike_score = min(1.0, float(np.std(step_grade)) / 0.05)
+    else:
+        spike_score = 0.0
+
+    return float(0.4 * inter_score + 0.3 * turn_score + 0.3 * spike_score)
+
+
 def cumulative_distances(coords: list[tuple[float, float]]) -> list[float]:
     """Cumulative geodesic distance along (lng, lat) coords; parallel to coords."""
     cum = [0.0]
@@ -688,6 +749,7 @@ def build_combinations(
     detected: list[DetectedClimb],
     dem,
     args,
+    node_degree: dict[tuple[float, float], int],
     geojson_features: list[dict] | None = None,
 ) -> list[DetectedClimb]:
     """For each ordered sequence of up to --max-combo climbs sharing OSM nodes at consecutive
@@ -764,14 +826,17 @@ def build_combinations(
             # shallower DFS depth (or a single climb in isolation).
             if not all(start_d <= jd <= end_d for jd in junction_dists):
                 continue
+            climb_nodes: list[tuple[float, float]] = []
             climb_wids: list[int] = []
             climb_surfs: list[str] = []
-            for cw, cs, cd in zip(
-                combined_node_way_ids, combined_node_surfaces, combined_node_cum
+            for cn, cw, cs, cd in zip(
+                combined_nodes, combined_node_way_ids, combined_node_surfaces, combined_node_cum
             ):
                 if start_d <= cd <= end_d:
+                    climb_nodes.append(cn)
                     climb_wids.append(cw)
                     climb_surfs.append(cs)
+            elevation_profile = [float(x) for x in elev[ti : pi + 1]]
             dc = DetectedClimb(
                 climb=climb,
                 name=name,
@@ -779,11 +844,15 @@ def build_combinations(
                 highway=highway,
                 osm_way_ids=unique_in_order(climb_wids),
                 bidirectional=False,
-                elevation_profile=[float(x) for x in elev[ti : pi + 1]],
+                elevation_profile=elevation_profile,
                 nodes=[],
                 node_way_ids=[],
                 node_surfaces=[],
                 is_combination=True,
+                score=compute_score(
+                    climb_nodes, elevation_profile, climb.length_m,
+                    args.sample_step, node_degree,
+                ),
             )
             out.append(dc)
             if geojson_features is not None:
@@ -1048,6 +1117,9 @@ def main() -> int:
         return 1
     log.info("loaded %d ways", len(ways))
 
+    log.info("computing node degrees")
+    node_degree = compute_node_degree(ways)
+
     log.info("stitching chains")
     chains = build_chains(ways)
     log.info(
@@ -1123,6 +1195,7 @@ def main() -> int:
                         chain, chain_cum, chain_total,
                         p_cum, ti, pi, reversed_pass,
                     )
+                    elevation_profile = [float(x) for x in p_elev[ti : pi + 1]]
                     dc = DetectedClimb(
                         climb=climb,
                         name=chain_name,
@@ -1130,10 +1203,14 @@ def main() -> int:
                         highway=chain.highway,
                         osm_way_ids=unique_in_order(node_wids),
                         bidirectional=chain.bidirectional,
-                        elevation_profile=[float(x) for x in p_elev[ti : pi + 1]],
+                        elevation_profile=elevation_profile,
                         nodes=nodes,
                         node_way_ids=node_wids,
                         node_surfaces=node_surfs,
+                        score=compute_score(
+                            nodes, elevation_profile, climb.length_m,
+                            args.sample_step, node_degree,
+                        ),
                     )
                     detected.append(dc)
                     highway_counts[chain.highway] = highway_counts.get(chain.highway, 0) + 1
@@ -1152,7 +1229,7 @@ def main() -> int:
 
         log.info("detected %d per-chain climbs; building combinations", len(detected))
         combinations = build_combinations(
-            detected, dem, args,
+            detected, dem, args, node_degree,
             geojson_features=geojson_features if args.out_geojson else None,
         )
         log.info("built %d combination climbs", len(combinations))
