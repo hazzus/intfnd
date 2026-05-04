@@ -1038,7 +1038,7 @@ def debug_chain(chain: Chain, ways_by_id: dict[int, Way], dem, args) -> None:
 def deduplicate_climbs(
     climbs: list[DetectedClimb], max_similarity: float
 ) -> tuple[list[DetectedClimb], int]:
-    """Drop near-duplicates: pairs whose node-sets overlap by min(|A|, |B|) ≥ max_similarity.
+    """Drop near-duplicates: pairs whose node-sets have Jaccard overlap ≥ max_similarity.
 
     Score is a penalty (lower = better), so the lower-scored climb survives. Visits in
     ascending score order; each kept climb evicts its still-unprocessed neighbours.
@@ -1065,8 +1065,8 @@ def deduplicate_climbs(
                 overlap[j] += 1
         size_i = len(node_sets[i])
         for j, count in overlap.items():
-            denom = min(size_i, len(node_sets[j]))
-            if denom and count / denom >= max_similarity:
+            union = size_i + len(node_sets[j]) - count
+            if union and count / union >= max_similarity:
                 removed.add(j)
 
     kept = [c for idx, c in enumerate(climbs) if idx not in removed]
@@ -1119,7 +1119,7 @@ def main() -> int:
     ap.add_argument("--prominence", type=float, default=10.0, help="Peak prominence threshold (m)")
     ap.add_argument("--max-combo", type=int, default=4, help="Max climbs to chain into a combination (>= 2)")
     ap.add_argument("--max-similarity", type=float, default=0.85,
-                    help="Drop climbs whose node-set overlaps another's by min(|A|,|B|) >= this; "
+                    help="Drop climbs whose node-set Jaccard overlap with another's >= this; "
                          "the climb with the lower score survives. Use 1.0 to disable.")
     ap.add_argument("--dry-run", action="store_true", help="Print stats, don't insert")
     ap.add_argument("-v", "--verbose", action="store_true", help="Print each detected climb")
