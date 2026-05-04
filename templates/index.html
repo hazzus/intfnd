@@ -125,8 +125,8 @@
       text-transform: uppercase;
       letter-spacing: 0.04em;
     }
-    .surface-asphalt { background: #eef; color: #335; }
-    .surface-non_asphalt { background: #f5ecdf; color: #7a4a1c; }
+    .surface-paved { background: #eef; color: #335; }
+    .surface-unpaved { background: #f5ecdf; color: #7a4a1c; }
     .result-meta { font-size: 0.78rem; color: #666; margin-top: 4px; }
     .no-results { font-size: 0.85rem; color: #888; }
 
@@ -175,7 +175,7 @@
     <div id="warnings"></div>
     <button id="find-btn">find</button>
     <label class="toggle">
-      <input id="asphalt-only" type="checkbox">
+      <input id="paved-only" type="checkbox">
       paved only
     </label>
     <div id="results"></div>
@@ -283,8 +283,8 @@
 
   function renderResults() {
     const resultsEl = document.getElementById('results');
-    const asphaltOnly = document.getElementById('asphalt-only').checked;
-    const filtered = asphaltOnly
+    const pavedOnly = document.getElementById('paved-only').checked;
+    const filtered = pavedOnly
       ? lastResults.filter(s => s.is_paved === true)
       : lastResults;
 
@@ -300,12 +300,12 @@
     resultsEl.innerHTML = filtered.map((s, i) => {
       const delta = Math.round(s.delta_s);
       const deltaStr = (delta >= 0 ? '+' : '') + delta + 's';
-      const surfaceLabel = s.surface === 'asphalt' ? 'paved' : 'unpaved';
+      const surfaceLabel = s.is_paved ? 'paved' : 'unpaved';
       return `
       <div class="result-card" data-idx="${i}">
         <div class="result-header">
           <span class="result-name">${s.name}</span>
-          <span class="surface-tag surface-${s.surface}">${surfaceLabel}</span>
+          <span class="surface-tag surface-${surfaceLabel}">${surfaceLabel}</span>
         </div>
         <div class="result-meta">
           ${(s.distance_m / 1000).toFixed(2)} km &nbsp;·&nbsp;
@@ -340,7 +340,7 @@
     });
   }
 
-  document.getElementById('asphalt-only').addEventListener('change', renderResults);
+  document.getElementById('paved-only').addEventListener('change', renderResults);
 
   document.getElementById('find-btn').addEventListener('click', async () => {
     const weight   = parseFloat(document.getElementById('weight').value);
