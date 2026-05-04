@@ -4,7 +4,7 @@ const RHO: f64 = 1.225; // air density, kg/m³ (sea level, 15 °C)
 const CDA: f64 = 0.32;  // Cd × frontal area, m² (road cyclist, hoods position)
 const ETA: f64 = 0.95;  // drivetrain efficiency (5% loss in chain/bearings)
 
-/// Returns the estimated ride time in seconds, or None for segments where
+/// Returns the estimated ride time in seconds, or None for climbs where
 /// the model doesn't apply (zero/negative power, unconverged solution).
 pub fn estimated_time(distance_m: f64, grade_pct: f64, weight_kg: f64, power_w: f64) -> Option<f64> {
     if power_w <= 0.0 || distance_m <= 0.0 {

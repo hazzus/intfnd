@@ -921,7 +921,7 @@ def debug_chain(chain: Chain, ways_by_id: dict[int, Way], dem, args) -> None:
 
     resampled = resample_way(chain.coords, args.sample_step)
     if resampled is None:
-        print("  RESAMPLE FAILED (way too short or zero-length segments)")
+        print("  RESAMPLE FAILED (way too short or zero-length climbs)")
         return
     lats, lngs, cum = resampled
     print(f"  after {args.sample_step}m resample: {len(lats)} points, total length {cum[-1]:.1f} m")
