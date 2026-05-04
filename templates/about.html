@@ -311,18 +311,22 @@
 
       <p>
         <strong>Average turn sharpness</strong> at those intersections — mean absolute change
-        in bearing entering vs. leaving each junction node, normalised against 90°:
+        in bearing entering vs. leaving each junction node, normalised against 120° (a 90°
+        turn is uncomfortable but rideable; a hairpin saturates the term):
       </p>
       <div class="formula">
-        $$ p_\text{turn} \;=\; \min\!\left(1,\; \tfrac{\overline{|\Delta\theta|}}{90°}\right) $$
+        $$ p_\text{turn} \;=\; \min\!\left(1,\; \tfrac{\overline{|\Delta\theta|}}{120°}\right) $$
       </div>
 
       <p>
-        <strong>Grade variability</strong> — standard deviation of point-to-point grade on the
-        smoothed elevation profile, normalised against 5 %:
+        <strong>Worst spike relative to average grade</strong> — on the smoothed elevation
+        profile, the largest deviation of any per-sample grade from the climb's average grade,
+        expressed as a multiple of that average. A uniformly-steep 9 % climb has no spike; a
+        3 % climb with a 20 % ramp halfway up does. Saturates at 2× (a spike deviating by
+        twice the average grade is fully bad):
       </p>
       <div class="formula">
-        $$ p_\text{spike} \;=\; \min\!\left(1,\; \tfrac{\sigma(\text{grade})}{0.05}\right) $$
+        $$ p_\text{spike} \;=\; \min\!\left(1,\; \tfrac{1}{2} \cdot \tfrac{\max_i |\text{grade}_i - \overline{\text{grade}}|}{\overline{\text{grade}}}\right) $$
       </div>
     </section>
 

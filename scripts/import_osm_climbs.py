@@ -647,21 +647,28 @@ def bearing(a: tuple[float, float], b: tuple[float, float]) -> float:
     return az % 360.0
 
 
-def compute_score(
+def score_breakdown(
     nodes: list[tuple[float, float]],
     elevation_profile: list[float],
     length_m: float,
     sample_step: float,
     node_degree: dict[tuple[float, float], int],
-) -> float:
-    """Climb quality score in [0, 1]; lower is better.
+) -> dict:
+    """Compute the climb score and the per-component values that fed into it.
 
-    Penalises (a) intersection density along the climb, (b) average turn sharpness at
-    those intersections, and (c) point-to-point grade variability on the smoothed
-    elevation profile. Weights 0.4 / 0.3 / 0.3.
+    Returns a dict with: intersections, turn_sum_deg, length_km, inter_density,
+    inter_score, avg_turn_deg, turn_score, grade_std, spike_score, score.
+    Score is in [0, 1]; lower is better.
     """
     if length_m <= 0 or len(nodes) < 2:
-        return 1.0
+        return {
+            "intersections": 0, "turn_sum_deg": 0.0, "length_km": 0.0,
+            "inter_density": 0.0, "inter_score": 0.0,
+            "avg_turn_deg": 0.0, "turn_score": 0.0,
+            "avg_grade": 0.0, "max_spike_dev": 0.0,
+            "spike_ratio": 0.0, "spike_score": 0.0,
+            "score": 1.0,
+        }
 
     intersections = 0
     turn_sum_deg = 0.0
@@ -675,16 +682,50 @@ def compute_score(
         turn_sum_deg += d
 
     length_km = max(length_m / 1000.0, 0.1)
-    inter_score = min(1.0, (intersections / length_km) / 4.0)
-    turn_score = min(1.0, (turn_sum_deg / intersections) / 90.0) if intersections else 0.0
+    inter_density = intersections / length_km
+    inter_score = min(1.0, inter_density / 4.0)
+    avg_turn_deg = (turn_sum_deg / intersections) if intersections else 0.0
+    turn_score = min(1.0, avg_turn_deg / 120.0) if intersections else 0.0
 
     if len(elevation_profile) >= 3 and sample_step > 0:
-        step_grade = np.diff(np.asarray(elevation_profile, dtype=float)) / sample_step
-        spike_score = min(1.0, float(np.std(step_grade)) / 0.05)
+        elev_arr = np.asarray(elevation_profile, dtype=float)
+        step_grade = np.diff(elev_arr) / sample_step
+        avg_grade = float((elev_arr[-1] - elev_arr[0]) / length_m)
+        max_spike_dev = float(np.max(np.abs(step_grade - avg_grade)))
     else:
-        spike_score = 0.0
+        avg_grade = 0.0
+        max_spike_dev = 0.0
+    # Relative spike size: how many "avg grades" the worst segment deviates by.
+    # A 20% ramp inside a 3% climb → ratio ≈ 5.67 (very spiky).
+    # A uniform 9% climb → ratio ≈ 0 (smooth).
+    spike_ratio = (max_spike_dev / avg_grade) if avg_grade > 0 else 0.0
+    spike_score = min(1.0, spike_ratio / 2.0)
 
-    return float(0.4 * inter_score + 0.3 * turn_score + 0.3 * spike_score)
+    score = float(0.4 * inter_score + 0.3 * turn_score + 0.3 * spike_score)
+    return {
+        "intersections": intersections, "turn_sum_deg": turn_sum_deg,
+        "length_km": length_km, "inter_density": inter_density,
+        "inter_score": inter_score, "avg_turn_deg": avg_turn_deg,
+        "turn_score": turn_score, "avg_grade": avg_grade,
+        "max_spike_dev": max_spike_dev, "spike_ratio": spike_ratio,
+        "spike_score": spike_score, "score": score,
+    }
+
+
+def compute_score(
+    nodes: list[tuple[float, float]],
+    elevation_profile: list[float],
+    length_m: float,
+    sample_step: float,
+    node_degree: dict[tuple[float, float], int],
+) -> float:
+    """Climb quality score in [0, 1]; lower is better.
+
+    Penalises (a) intersection density along the climb, (b) average turn sharpness at
+    those intersections, and (c) point-to-point grade variability on the smoothed
+    elevation profile. Weights 0.4 / 0.3 / 0.3.
+    """
+    return score_breakdown(nodes, elevation_profile, length_m, sample_step, node_degree)["score"]
 
 
 def cumulative_distances(coords: list[tuple[float, float]]) -> list[float]:
@@ -884,7 +925,13 @@ def build_combinations(
     return out
 
 
-def debug_chain(chain: Chain, ways_by_id: dict[int, Way], dem, args) -> None:
+def debug_chain(
+    chain: Chain,
+    ways_by_id: dict[int, Way],
+    dem,
+    args,
+    node_degree: dict[tuple[float, float], int],
+) -> None:
     print(f"\n=== chain (seed way {chain.primary_id}, {len(chain.way_ids)} way(s)) ===")
     print(f"  way_ids: {chain.way_ids}")
     print(f"  highway: {chain.highway}   name: {chain.name!r}   ref: {chain.ref!r}")
@@ -942,13 +989,16 @@ def debug_chain(chain: Chain, ways_by_id: dict[int, Way], dem, args) -> None:
           f"smoothed min={elev.min():.1f} max={elev.max():.1f}  "
           f"raw gain={elev_raw.max()-elev_raw.min():.1f} m")
 
-    passes = [("forward", lats, lngs, cum, elev)]
+    chain_cum = cumulative_distances(chain.coords)
+    chain_total = chain_cum[-1] if chain_cum else 0.0
+
+    passes = [("forward", False, lats, lngs, cum, elev)]
     if chain.bidirectional:
         rl, rln, rc, re = reverse_profile(lats, lngs, cum, elev)
-        passes.append(("reverse", rl, rln, rc, re))
+        passes.append(("reverse", True, rl, rln, rc, re))
 
     accepted_per_pass: list[tuple[str, list]] = []
-    for label, p_lats, p_lngs, p_cum, p_elev in passes:
+    for label, reversed_pass, p_lats, p_lngs, p_cum, p_elev in passes:
         print(f"\n  --- pass: {label} ---")
         peaks, peak_props = find_peaks(p_elev, prominence=args.prominence)
         troughs, trough_props = find_peaks(-p_elev, prominence=args.prominence)
@@ -988,6 +1038,37 @@ def debug_chain(chain: Chain, ways_by_id: dict[int, Way], dem, args) -> None:
             if not reasons:
                 accepted.append((i_idx, k_idx, length, grade, gain))
         accepted_per_pass.append((label, accepted))
+
+        if accepted:
+            print(f"  score breakdown for {len(accepted)} accepted climb(s):")
+        for ti, pi, length, grade, gain in accepted:
+            nodes, _, _ = chain_node_slice(
+                chain, chain_cum, chain_total, p_cum, ti, pi, reversed_pass,
+            )
+            elevation_profile = [float(x) for x in p_elev[ti : pi + 1]]
+            sb = score_breakdown(nodes, elevation_profile, length, args.sample_step, node_degree)
+            inter_w = 0.4 * sb["inter_score"]
+            turn_w = 0.3 * sb["turn_score"]
+            spike_w = 0.3 * sb["spike_score"]
+            print(
+                f"    climb trough@{ti}→peak@{pi}  ({length:.0f} m, {grade*100:.2f}%, +{gain:.1f} m, "
+                f"{len(nodes)} chain nodes)"
+            )
+            print(f"      score = {sb['score']:.3f}  (lower is better)")
+            print(
+                f"      intersections : {sb['intersections']:>3} on {sb['length_km']:.2f} km "
+                f"({sb['inter_density']:.2f}/km, capped at 4/km) → "
+                f"inter_score={sb['inter_score']:.3f} × 0.4 = {inter_w:.3f}"
+            )
+            print(
+                f"      avg turn      : {sb['avg_turn_deg']:5.1f}° "
+                f"(capped at 120°) → turn_score={sb['turn_score']:.3f} × 0.3 = {turn_w:.3f}"
+            )
+            print(
+                f"      spike         : worst |step − avg| = {sb['max_spike_dev']*100:5.2f}% "
+                f"vs avg {sb['avg_grade']*100:.2f}% → ratio {sb['spike_ratio']:.2f}× "
+                f"(capped at 2×) → spike_score={sb['spike_score']:.3f} × 0.3 = {spike_w:.3f}"
+            )
 
     if args.debug_plot:
         import matplotlib.pyplot as plt
@@ -1184,7 +1265,7 @@ def main() -> int:
                 if chain_idx in seen_chains:
                     continue
                 seen_chains.add(chain_idx)
-                debug_chain(rotate_loop_chain(chain, dem), ways_by_id, dem, args)
+                debug_chain(rotate_loop_chain(chain, dem), ways_by_id, dem, args, node_degree)
             all_way_ids = {w.id for w in ways}
             missing = only_ids - all_way_ids
             if missing:
