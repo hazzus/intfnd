@@ -293,26 +293,29 @@
       </p>
 
       <div class="formula">
-        $$ \text{score} \;=\; 100 \cdot \bigl(1 \;-\; 0.4 \cdot p_\text{inter} \;-\; 0.3 \cdot p_\text{turn} \;-\; 0.3 \cdot p_\text{spike}\bigr) $$
+        $$ \text{score} \;=\; 100 \cdot \bigl(1 \;-\; 0.5 \cdot p_\text{inter} \;-\; 0.4 \cdot p_\text{turn} \;-\; 0.1 \cdot p_\text{spike}\bigr) $$
       </div>
       <p class="caption">
         Each penalty term \(p_\text{x} \in [0, 1]\); a clean climb has them all near 0
-        and scores close to 100, a bad one approaches 0.
+        and scores close to 100, a bad one approaches 0. Each \(p_\text{x}\) <strong>saturates
+        at its threshold</strong> — once the raw measurement crosses it, the penalty caps at
+        1.0 and getting worse no longer changes the score. Thresholds are tuned to roughly
+        the 90th percentile of imported climbs, so the worst ~10 % saturate and the rest get
+        a graded penalty.
       </p>
 
       <p>
         <strong>Intersection density</strong> — count of OSM nodes along the climb that are
-        real junctions (degree ≥ 3 in the cyclable network), normalised against a target of
-        4 intersections per km:
+        real junctions (degree ≥ 3 in the cyclable network), per km. Saturates at 5/km:
       </p>
       <div class="formula">
-        $$ p_\text{inter} \;=\; \min\!\left(1,\; \tfrac{N_\text{inter} / L_\text{km}}{4}\right) $$
+        $$ p_\text{inter} \;=\; \min\!\left(1,\; \tfrac{N_\text{inter} / L_\text{km}}{5}\right) $$
       </div>
 
       <p>
         <strong>Average turn sharpness</strong> at those intersections — mean absolute change
-        in bearing entering vs. leaving each junction node, normalised against 120° (a 90°
-        turn is uncomfortable but rideable; a hairpin saturates the term):
+        in bearing entering vs. leaving each junction node. Saturates at 120° (a 90° turn is
+        uncomfortable but rideable; a hairpin saturates the term):
       </p>
       <div class="formula">
         $$ p_\text{turn} \;=\; \min\!\left(1,\; \tfrac{\overline{|\Delta\theta|}}{120°}\right) $$
@@ -320,14 +323,22 @@
 
       <p>
         <strong>Worst spike relative to average grade</strong> — on the smoothed elevation
-        profile, the largest deviation of any per-sample grade from the climb's average grade,
+        profile, the largest deviation of any per-sample grade from the climb's average,
         expressed as a multiple of that average. A uniformly-steep 9 % climb has no spike; a
-        3 % climb with a 20 % ramp halfway up does. Saturates at 2× (a spike deviating by
-        twice the average grade is fully bad):
+        3 % climb with a 20 % ramp halfway up does. Saturates at 3× the average grade:
       </p>
       <div class="formula">
-        $$ p_\text{spike} \;=\; \min\!\left(1,\; \tfrac{1}{2} \cdot \tfrac{\max_i |\text{grade}_i - \overline{\text{grade}}|}{\overline{\text{grade}}}\right) $$
+        $$ p_\text{spike} \;=\; \min\!\left(1,\; \tfrac{1}{3} \cdot \tfrac{\max_i |\text{grade}_i - \overline{\text{grade}}|}{\overline{\text{grade}}}\right) $$
       </div>
+      <p>
+        The spike term carries the smallest weight (0.1) on purpose. Per-sample grade is
+        derived from SRTM elevation samples ~10 m apart, and SRTM's vertical noise is roughly
+        the same magnitude as the height differences between adjacent samples on a real road —
+        so a single noisy sample can look like a 20 % ramp that isn't there. Treat
+        \(p_\text{spike}\) as a weak hint, not a measurement. Intersection density and turn
+        sharpness come straight from OSM topology and are far more reliable, which is why
+        they dominate the mix.
+      </p>
     </section>
 
     <section>

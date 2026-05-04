@@ -90,6 +90,7 @@ class DetectedClimb:
     node_surfaces: list[str]
     is_combination: bool = False
     score: float = 0.0
+    score_components: dict = field(default_factory=dict)
 
 
 def unique_in_order(items):
@@ -647,6 +648,20 @@ def bearing(a: tuple[float, float], b: tuple[float, float]) -> float:
     return az % 360.0
 
 
+# ── score tuning constants ───────────────────────────────────────────────
+# Saturation thresholds: subscore reaches 1.0 (worst) when its raw measurement
+# hits the threshold. Lower threshold → faster saturation → harsher penalty.
+SCORE_INTER_NORM = 5.0    # intersections per km
+SCORE_TURN_NORM = 120.0   # average turn at junctions, degrees
+SCORE_SPIKE_NORM = 6.0    # max grade deviation / avg grade (unitless ratio)
+
+# Weights mixing the three saturated subscores into the final score.
+# Should sum to 1.0 if you want the final score to stay in [0, 1].
+SCORE_WEIGHT_INTER = 0.5
+SCORE_WEIGHT_TURN = 0.4
+SCORE_WEIGHT_SPIKE = 0.1
+
+
 def score_breakdown(
     nodes: list[tuple[float, float]],
     elevation_profile: list[float],
@@ -683,9 +698,9 @@ def score_breakdown(
 
     length_km = max(length_m / 1000.0, 0.1)
     inter_density = intersections / length_km
-    inter_score = min(1.0, inter_density / 4.0)
+    inter_score = min(1.0, inter_density / SCORE_INTER_NORM)
     avg_turn_deg = (turn_sum_deg / intersections) if intersections else 0.0
-    turn_score = min(1.0, avg_turn_deg / 120.0) if intersections else 0.0
+    turn_score = min(1.0, avg_turn_deg / SCORE_TURN_NORM) if intersections else 0.0
 
     if len(elevation_profile) >= 3 and sample_step > 0:
         elev_arr = np.asarray(elevation_profile, dtype=float)
@@ -699,9 +714,13 @@ def score_breakdown(
     # A 20% ramp inside a 3% climb → ratio ≈ 5.67 (very spiky).
     # A uniform 9% climb → ratio ≈ 0 (smooth).
     spike_ratio = (max_spike_dev / avg_grade) if avg_grade > 0 else 0.0
-    spike_score = min(1.0, spike_ratio / 2.0)
+    spike_score = min(1.0, spike_ratio / SCORE_SPIKE_NORM)
 
-    score = float(0.4 * inter_score + 0.3 * turn_score + 0.3 * spike_score)
+    score = float(
+        SCORE_WEIGHT_INTER * inter_score
+        + SCORE_WEIGHT_TURN * turn_score
+        + SCORE_WEIGHT_SPIKE * spike_score
+    )
     return {
         "intersections": intersections, "turn_sum_deg": turn_sum_deg,
         "length_km": length_km, "inter_density": inter_density,
@@ -726,6 +745,74 @@ def compute_score(
     elevation profile. Weights 0.4 / 0.3 / 0.3.
     """
     return score_breakdown(nodes, elevation_profile, length_m, sample_step, node_degree)["score"]
+
+
+def log_score_stats(detected: list["DetectedClimb"]) -> None:
+    """Log mean / median / max of each score component, plus saturation rates.
+
+    Use this to tune the normalisation thresholds in score_breakdown — if a saturated
+    subscore hits 1.0 for a large fraction of climbs, the threshold is too tight and
+    the component effectively becomes a constant penalty.
+    """
+    if not detected:
+        return
+
+    rows = [dc.score_components for dc in detected if dc.score_components]
+    if not rows:
+        return
+
+    def stats(values: list[float]) -> tuple[float, float, float, float]:
+        a = np.asarray(values, dtype=float)
+        return (
+            float(a.mean()),
+            float(np.median(a)),
+            float(np.percentile(a, 90)),
+            float(a.max()),
+        )
+
+    raw_keys = [
+        ("intersections / km", "inter_density", "%6.2f", SCORE_INTER_NORM),
+        ("avg turn (deg)    ", "avg_turn_deg",  "%6.1f", SCORE_TURN_NORM),
+        ("spike ratio       ", "spike_ratio",   "%6.2f", SCORE_SPIKE_NORM),
+    ]
+    sat_keys = [
+        ("inter_score", "inter_score", SCORE_WEIGHT_INTER),
+        ("turn_score ", "turn_score",  SCORE_WEIGHT_TURN),
+        ("spike_score", "spike_score", SCORE_WEIGHT_SPIKE),
+    ]
+
+    log.info("score components — unnormalised (p90 is a good saturation-point candidate):")
+    for label, key, fmt, norm in raw_keys:
+        vals = [r.get(key, 0.0) for r in rows]
+        m, med, p90, mx = stats(vals)
+        log.info(
+            "  %s mean=%s median=%s p90=%s max=%s (norm=%g)",
+            label, fmt % m, fmt % med, fmt % p90, fmt % mx, norm,
+        )
+
+    log.info("score components — saturated [0, 1] (saturation = fraction at 1.0):")
+    for label, key, weight in sat_keys:
+        vals = [r.get(key, 0.0) for r in rows]
+        m, med, p90, mx = stats(vals)
+        sat = float(np.mean([v >= 0.999 for v in vals]))
+        log.info(
+            "  %s mean=%.3f median=%.3f p90=%.3f max=%.3f saturation=%.1f%% weight=%g",
+            label, m, med, p90, mx, sat * 100.0, weight,
+        )
+
+    scores = [dc.score for dc in detected]
+    m, med, p90, mx = stats(scores)
+    log.info(
+        "final score (raw [0,1], lower=better): mean=%.3f median=%.3f p90=%.3f max=%.3f",
+        m, med, p90, mx,
+    )
+    displayed = np.array([100.0 * (1.0 - s) for s in scores])
+    log.info(
+        "final score (displayed 0-100, higher=better): mean=%.1f median=%.1f p10=%.1f min=%.1f max=%.1f",
+        float(displayed.mean()), float(np.median(displayed)),
+        float(np.percentile(displayed, 10)),
+        float(displayed.min()), float(displayed.max()),
+    )
 
 
 def cumulative_distances(coords: list[tuple[float, float]]) -> list[float]:
@@ -876,6 +963,10 @@ def build_combinations(
                     climb_wids.append(cw)
                     climb_surfs.append(cs)
             elevation_profile = [float(x) for x in elev[ti : pi + 1]]
+            sb = score_breakdown(
+                climb_nodes, elevation_profile, climb.length_m,
+                args.sample_step, node_degree,
+            )
             dc = DetectedClimb(
                 climb=climb,
                 name=name,
@@ -888,10 +979,8 @@ def build_combinations(
                 node_way_ids=climb_wids,
                 node_surfaces=climb_surfs,
                 is_combination=True,
-                score=compute_score(
-                    climb_nodes, elevation_profile, climb.length_m,
-                    args.sample_step, node_degree,
-                ),
+                score=sb["score"],
+                score_components=sb,
             )
             out.append(dc)
             if geojson_features is not None:
@@ -1047,9 +1136,9 @@ def debug_chain(
             )
             elevation_profile = [float(x) for x in p_elev[ti : pi + 1]]
             sb = score_breakdown(nodes, elevation_profile, length, args.sample_step, node_degree)
-            inter_w = 0.4 * sb["inter_score"]
-            turn_w = 0.3 * sb["turn_score"]
-            spike_w = 0.3 * sb["spike_score"]
+            inter_w = SCORE_WEIGHT_INTER * sb["inter_score"]
+            turn_w = SCORE_WEIGHT_TURN * sb["turn_score"]
+            spike_w = SCORE_WEIGHT_SPIKE * sb["spike_score"]
             print(
                 f"    climb trough@{ti}→peak@{pi}  ({length:.0f} m, {grade*100:.2f}%, +{gain:.1f} m, "
                 f"{len(nodes)} chain nodes)"
@@ -1057,17 +1146,19 @@ def debug_chain(
             print(f"      score = {sb['score']:.3f}  (lower is better)")
             print(
                 f"      intersections : {sb['intersections']:>3} on {sb['length_km']:.2f} km "
-                f"({sb['inter_density']:.2f}/km, capped at 4/km) → "
-                f"inter_score={sb['inter_score']:.3f} × 0.4 = {inter_w:.3f}"
+                f"({sb['inter_density']:.2f}/km, capped at {SCORE_INTER_NORM:g}/km) → "
+                f"inter_score={sb['inter_score']:.3f} × {SCORE_WEIGHT_INTER:g} = {inter_w:.3f}"
             )
             print(
                 f"      avg turn      : {sb['avg_turn_deg']:5.1f}° "
-                f"(capped at 120°) → turn_score={sb['turn_score']:.3f} × 0.3 = {turn_w:.3f}"
+                f"(capped at {SCORE_TURN_NORM:g}°) → "
+                f"turn_score={sb['turn_score']:.3f} × {SCORE_WEIGHT_TURN:g} = {turn_w:.3f}"
             )
             print(
                 f"      spike         : worst |step − avg| = {sb['max_spike_dev']*100:5.2f}% "
                 f"vs avg {sb['avg_grade']*100:.2f}% → ratio {sb['spike_ratio']:.2f}× "
-                f"(capped at 2×) → spike_score={sb['spike_score']:.3f} × 0.3 = {spike_w:.3f}"
+                f"(capped at {SCORE_SPIKE_NORM:g}×) → "
+                f"spike_score={sb['spike_score']:.3f} × {SCORE_WEIGHT_SPIKE:g} = {spike_w:.3f}"
             )
 
     if args.debug_plot:
@@ -1316,6 +1407,10 @@ def main() -> int:
                         p_cum, ti, pi, reversed_pass,
                     )
                     elevation_profile = [float(x) for x in p_elev[ti : pi + 1]]
+                    sb = score_breakdown(
+                        nodes, elevation_profile, climb.length_m,
+                        args.sample_step, node_degree,
+                    )
                     dc = DetectedClimb(
                         climb=climb,
                         name=chain_name,
@@ -1327,10 +1422,8 @@ def main() -> int:
                         nodes=nodes,
                         node_way_ids=node_wids,
                         node_surfaces=node_surfs,
-                        score=compute_score(
-                            nodes, elevation_profile, climb.length_m,
-                            args.sample_step, node_degree,
-                        ),
+                        score=sb["score"],
+                        score_components=sb,
                     )
                     detected.append(dc)
                     highway_counts[chain.highway] = highway_counts.get(chain.highway, 0) + 1
@@ -1395,6 +1488,8 @@ def main() -> int:
             "grade  (%%): min=%.1f median=%.1f max=%.1f",
             gs.min(), np.median(gs), gs.max(),
         )
+
+    log_score_stats(detected)
 
     if args.out_geojson:
         write_geojson(args.out_geojson, geojson_features)
