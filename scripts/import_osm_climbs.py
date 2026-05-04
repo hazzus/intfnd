@@ -77,6 +77,19 @@ class Climb:
 
 
 @dataclass
+class DetectedClimb:
+    """A climb produced by the detector, with the provenance needed to combine it with others."""
+    climb: Climb
+    name: str
+    surface: str
+    highway: str
+    # Original (lng, lat) chain nodes covering the climb, ordered ascending (low → high).
+    # Empty for climbs that themselves resulted from a combination — combinations are terminal.
+    nodes: list[tuple[float, float]]
+    is_combination: bool = False
+
+
+@dataclass
 class Way:
     id: int
     coords: list[tuple[float, float]]  # (lng, lat)
@@ -352,7 +365,7 @@ def detect_climbs(
     min_grade: float,
     min_gain: float,
     prominence: float,
-) -> list[Climb]:
+) -> list[tuple[Climb, int, int]]:
     if len(elev) < 3:
         return []
 
@@ -387,10 +400,10 @@ def detect_climbs(
         selected.append((ti, pi, length, grade, gain))
     selected.sort()
 
-    climbs = []
+    climbs: list[tuple[Climb, int, int]] = []
     for ti, pi, length, grade, gain in selected:
         coords = list(zip(lats[ti : pi + 1].tolist(), lngs[ti : pi + 1].tolist()))
-        climbs.append(Climb(coords=coords, length_m=length, grade=grade, gain_m=gain))
+        climbs.append((Climb(coords=coords, length_m=length, grade=grade, gain_m=gain), ti, pi))
     return climbs
 
 
@@ -424,21 +437,23 @@ def reverse_profile(lats, lngs, cum, elev):
     )
 
 
-def to_segment_row(climb: Climb, chain: Chain) -> dict:
+def chain_display_name(chain: Chain) -> str:
     if chain.name:
-        name = str(chain.name)
-    elif chain.ref:
-        name = f"Climb on {chain.ref}"
-    else:
-        name = "Unnamed climb"
+        return str(chain.name)
+    if chain.ref:
+        return f"Climb on {chain.ref}"
+    return "Unnamed climb"
+
+
+def to_segment_row(dc: DetectedClimb) -> dict:
     return {
-        "name": name,
-        "distance": float(climb.length_m),
-        "average_grade": float(climb.grade) * 100,
-        "start_lat": float(climb.coords[0][0]),
-        "start_lng": float(climb.coords[0][1]),
-        "polyline": polyline_lib.encode(climb.coords),
-        "surface": chain.surface,
+        "name": dc.name,
+        "distance": float(dc.climb.length_m),
+        "average_grade": float(dc.climb.grade) * 100,
+        "start_lat": float(dc.climb.coords[0][0]),
+        "start_lng": float(dc.climb.coords[0][1]),
+        "polyline": polyline_lib.encode(dc.climb.coords),
+        "surface": dc.surface,
     }
 
 
@@ -503,6 +518,27 @@ def climb_feature(climb: Climb, chain: Chain) -> dict:
     }
 
 
+def combination_feature(dc: DetectedClimb) -> dict:
+    return {
+        "type": "Feature",
+        "geometry": {
+            "type": "LineString",
+            "coordinates": [[lng, lat] for lat, lng in dc.climb.coords],
+        },
+        "properties": {
+            "kind": "combination",
+            "highway": dc.highway,
+            "name": dc.name,
+            "length_m": round(dc.climb.length_m, 1),
+            "grade_pct": round(dc.climb.grade * 100, 2),
+            "gain_m": round(dc.climb.gain_m, 1),
+            "stroke": "#9b59b6",
+            "stroke-width": 5,
+            "stroke-opacity": 0.95,
+        },
+    }
+
+
 def write_geojson(path: str, features: list[dict]) -> None:
     fc = {"type": "FeatureCollection", "features": features}
     with open(path, "w") as f:
@@ -518,6 +554,182 @@ def way_length_m(coords: list[tuple[float, float]]) -> float:
         if np.isfinite(dist):
             total += dist
     return total
+
+
+def rotate_loop_chain(chain: Chain, dem) -> Chain:
+    """If chain is a closed loop, return it rotated so coords[0] is at the lowest-elevation node.
+
+    Loops have coords[0] == coords[-1] (the polyline closes on the same OSM node). The
+    detector treats coords[0] as a synthetic trough; if that boundary happens to fall
+    mid-climb, the detector misses the true ascent extent. Rotating to the lowest node
+    makes the synthetic trough coincide with the real loop low point.
+    """
+    if len(chain.coords) < 3 or chain.coords[0] != chain.coords[-1]:
+        return chain
+    interior = chain.coords[:-1]
+    lngs = np.array([c[0] for c in interior])
+    lats = np.array([c[1] for c in interior])
+    elev = sample_elevation(dem, lats, lngs)
+    if np.any(np.isnan(elev)):
+        return chain
+    k = int(np.argmin(elev))
+    if k == 0:
+        return chain
+    rotated = list(interior[k:]) + list(interior[:k])
+    rotated.append(rotated[0])
+    return Chain(
+        way_ids=chain.way_ids,
+        coords=rotated,
+        name=chain.name,
+        ref=chain.ref,
+        highway=chain.highway,
+        surface=chain.surface,
+        bidirectional=chain.bidirectional,
+        tags=chain.tags,
+    )
+
+
+def cumulative_distances(coords: list[tuple[float, float]]) -> list[float]:
+    """Cumulative geodesic distance along (lng, lat) coords; parallel to coords."""
+    cum = [0.0]
+    total = 0.0
+    for i in range(1, len(coords)):
+        lng1, lat1 = coords[i - 1]
+        lng2, lat2 = coords[i]
+        _, _, dist = GEOD.inv(lng1, lat1, lng2, lat2)
+        if np.isfinite(dist):
+            total += dist
+        cum.append(total)
+    return cum
+
+
+def chain_node_slice(
+    chain_coords: list[tuple[float, float]],
+    chain_cum: list[float],
+    chain_total: float,
+    p_cum: np.ndarray,
+    ti: int,
+    pi: int,
+    reversed_pass: bool,
+) -> list[tuple[float, float]]:
+    """Original chain nodes (lng, lat) covering a climb's resampled range, ordered ascending.
+
+    For the reverse pass, the resampled cumulative distances are measured from the
+    chain's end, so we mirror them back into chain-forward space and then reverse
+    the slice so it still goes low-elevation → high-elevation.
+    """
+    start_d = float(p_cum[ti])
+    end_d = float(p_cum[pi])
+    if reversed_pass:
+        s = chain_total - end_d
+        e = chain_total - start_d
+    else:
+        s, e = start_d, end_d
+    nodes = [c for c, cd in zip(chain_coords, chain_cum) if s <= cd <= e]
+    if reversed_pass:
+        nodes.reverse()
+    return nodes
+
+
+def combo_name(a_name: str, b_name: str) -> str:
+    if a_name == b_name:
+        return a_name
+    return f"{a_name} + {b_name}"
+
+
+def build_combinations(
+    detected: list[DetectedClimb],
+    dem,
+    args,
+    geojson_features: list[dict] | None = None,
+) -> list[DetectedClimb]:
+    """For each ordered pair of climbs sharing an OSM node, build A_start → N → B_end and
+    re-run the climb detector on the joined polyline.
+
+    Combinations are explicitly allowed to cross highway types — that's the whole point,
+    since the chain stitcher refuses to merge across highway-class transitions.
+    """
+    if not detected:
+        return []
+
+    # Index nodes → (climb_idx, position_in_climb).
+    node_map: dict[tuple[float, float], list[tuple[int, int]]] = defaultdict(list)
+    for ci, dc in enumerate(detected):
+        for pos, node in enumerate(dc.nodes):
+            node_map[node].append((ci, pos))
+
+    processed: set[tuple[int, int]] = set()  # one combination per ordered (ca, cb)
+    out: list[DetectedClimb] = []
+
+    for occurrences in node_map.values():
+        if len(occurrences) < 2:
+            continue
+        for ca, pa in occurrences:
+            for cb, pb in occurrences:
+                if ca == cb:
+                    continue
+                if (ca, cb) in processed:
+                    continue
+                a = detected[ca]
+                b = detected[cb]
+                # Need real material from each side: A's start through the junction,
+                # then B's tail past the junction.
+                if pa == 0:
+                    continue
+                if pb >= len(b.nodes) - 1:
+                    continue
+
+                combined_nodes = a.nodes[: pa + 1] + b.nodes[pb + 1 :]
+                if len(combined_nodes) < 2:
+                    continue
+                combined_total = way_length_m(combined_nodes)
+                if combined_total < args.min_length:
+                    continue
+
+                processed.add((ca, cb))
+
+                resampled = resample_way(combined_nodes, args.sample_step)
+                if resampled is None:
+                    continue
+                lats, lngs, cum = resampled
+                elev = sample_elevation(dem, lats, lngs)
+                if np.any(np.isnan(elev)):
+                    continue
+                elev = smooth(elev, args.smooth_window, args.sample_step)
+
+                # Where the junction sits on the combined polyline.
+                junction_dist = way_length_m(combined_nodes[: pa + 1])
+
+                surface = (
+                    "non_asphalt"
+                    if a.surface == "non_asphalt" or b.surface == "non_asphalt"
+                    else "asphalt"
+                )
+                highway = a.highway if a.highway == b.highway else f"{a.highway}+{b.highway}"
+                name = combo_name(a.name, b.name)
+
+                for climb, ti, pi in detect_climbs(
+                    lats, lngs, cum, elev,
+                    args.min_length, args.min_grade, args.min_gain, args.prominence,
+                ):
+                    # Only keep climbs that actually straddle the junction; otherwise the
+                    # detector just rediscovered A or B in isolation.
+                    start_d = float(cum[ti])
+                    end_d = float(cum[pi])
+                    if not (start_d <= junction_dist <= end_d):
+                        continue
+                    dc = DetectedClimb(
+                        climb=climb,
+                        name=name,
+                        surface=surface,
+                        highway=highway,
+                        nodes=[],
+                        is_combination=True,
+                    )
+                    out.append(dc)
+                    if geojson_features is not None:
+                        geojson_features.append(combination_feature(dc))
+    return out
 
 
 def debug_chain(chain: Chain, ways_by_id: dict[int, Way], dem, args) -> None:
@@ -762,7 +974,7 @@ def main() -> int:
                 if chain_idx in seen_chains:
                     continue
                 seen_chains.add(chain_idx)
-                debug_chain(chain, ways_by_id, dem, args)
+                debug_chain(rotate_loop_chain(chain, dem), ways_by_id, dem, args)
             all_way_ids = {w.id for w in ways}
             missing = only_ids - all_way_ids
             if missing:
@@ -771,14 +983,13 @@ def main() -> int:
             dem.close()
         return 0
 
-    rows: list[dict] = []
-    lengths: list[float] = []
-    grades: list[float] = []
+    detected: list[DetectedClimb] = []
     highway_counts: dict[str, int] = {}
     geojson_features: list[dict] = []
 
     try:
         for chain in tqdm(chains, unit="chain"):
+            chain = rotate_loop_chain(chain, dem)
             if args.out_geojson:
                 geojson_features.append(chain_feature(chain))
             resampled = resample_way(chain.coords, args.sample_step)
@@ -792,37 +1003,74 @@ def main() -> int:
                 continue
             elev = smooth(elev, args.smooth_window, args.sample_step)
 
-            passes = [(lats, lngs, cum, elev)]
-            if chain.bidirectional:
-                passes.append(reverse_profile(lats, lngs, cum, elev))
+            chain_cum = cumulative_distances(chain.coords)
+            chain_total = chain_cum[-1] if chain_cum else 0.0
 
-            for p_lats, p_lngs, p_cum, p_elev in passes:
-                for climb in detect_climbs(
+            passes: list[tuple[bool, np.ndarray, np.ndarray, np.ndarray, np.ndarray]] = [
+                (False, lats, lngs, cum, elev),
+            ]
+            if chain.bidirectional:
+                rl, rln, rc, re_ = reverse_profile(lats, lngs, cum, elev)
+                passes.append((True, rl, rln, rc, re_))
+
+            chain_name = chain_display_name(chain)
+
+            for reversed_pass, p_lats, p_lngs, p_cum, p_elev in passes:
+                for climb, ti, pi in detect_climbs(
                     p_lats, p_lngs, p_cum, p_elev,
                     args.min_length, args.min_grade, args.min_gain, args.prominence,
                 ):
-                    row = to_segment_row(climb, chain)
-                    rows.append(row)
-                    lengths.append(climb.length_m)
-                    grades.append(climb.grade)
+                    nodes = chain_node_slice(
+                        chain.coords, chain_cum, chain_total,
+                        p_cum, ti, pi, reversed_pass,
+                    )
+                    dc = DetectedClimb(
+                        climb=climb,
+                        name=chain_name,
+                        surface=chain.surface,
+                        highway=chain.highway,
+                        nodes=nodes,
+                    )
+                    detected.append(dc)
                     highway_counts[chain.highway] = highway_counts.get(chain.highway, 0) + 1
                     if args.out_geojson:
                         geojson_features.append(climb_feature(climb, chain))
                     if args.verbose:
                         log.info(
-                            "climb: %-40s  %5.0f m  %4.1f%%  +%4.0f m  start=%.5f,%.5f  polyline=%s",
-                            row["name"][:40],
+                            "climb: %-40s  %5.0f m  %4.1f%%  +%4.0f m  start=%.5f,%.5f",
+                            chain_name[:40],
                             climb.length_m,
                             climb.grade * 100,
                             climb.gain_m,
                             climb.coords[0][0],
                             climb.coords[0][1],
-                            row["polyline"],
                         )
+
+        log.info("detected %d per-chain climbs; building combinations", len(detected))
+        combinations = build_combinations(
+            detected, dem, args,
+            geojson_features=geojson_features if args.out_geojson else None,
+        )
+        log.info("built %d combination climbs", len(combinations))
+        for dc in combinations:
+            highway_counts[dc.highway] = highway_counts.get(dc.highway, 0) + 1
+            if args.verbose:
+                log.info(
+                    "combo: %-40s  %5.0f m  %4.1f%%  +%4.0f m",
+                    dc.name[:40],
+                    dc.climb.length_m,
+                    dc.climb.grade * 100,
+                    dc.climb.gain_m,
+                )
+        detected.extend(combinations)
     finally:
         dem.close()
 
-    log.info("detected %d climbs", len(rows))
+    rows = [to_segment_row(dc) for dc in detected]
+    lengths = [dc.climb.length_m for dc in detected]
+    grades = [dc.climb.grade for dc in detected]
+
+    log.info("detected %d climbs total", len(rows))
     if highway_counts:
         breakdown = ", ".join(
             f"{hw}={n}" for hw, n in sorted(highway_counts.items(), key=lambda kv: -kv[1])
