@@ -38,6 +38,16 @@ pub struct SearchResult {
     pub score: f64,
 }
 
+pub fn calc_score(result: &SearchResult, request: &SearchRequest) {
+    const DISTANCE_WEIGHT: f64 = 0.5;
+    const SCORE_WEIGHT: f64 = 0.3;
+
+    let time_score = (result.delta_s / request.interval_s).powi(2);
+    let distance_score = 0; // TODO calculate distance haversine, geo crate + map into [0, 1] by radius
+
+    time_score + DISTANCE_WEIGHT * distance_score + SCORE_WEIGHT * result.score
+}
+
 pub async fn search(
     State(state): State<AppState>,
     Json(req): Json<SearchRequest>,
@@ -97,10 +107,9 @@ pub async fn search(
         })
         .collect();
 
-    const LAMBDA: f64 = 0.3;
     results.sort_by(|a, b| {
-        let sa = (a.delta_s / req.interval_s).powi(2) + LAMBDA * a.score;
-        let sb = (b.delta_s / req.interval_s).powi(2) + LAMBDA * b.score;
+        let sa = calc_score(a, &req);
+        let sb = calc_score(b, &req);
         sa.partial_cmp(&sb).unwrap_or(std::cmp::Ordering::Equal)
     });
 

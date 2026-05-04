@@ -10,7 +10,6 @@ Example:
         --db postgres://postgres:pw@localhost/intfnd
 
 TODO:
-intersect more than 2 climbs
 score calc
 """
 import argparse
@@ -681,10 +680,8 @@ def chain_node_slice(
     return nodes, wids, surfs
 
 
-def combo_name(a_name: str, b_name: str) -> str:
-    if a_name == b_name:
-        return a_name
-    return f"{a_name} + {b_name}"
+def combo_name(names: list[str]) -> str:
+    return " + ".join(unique_in_order(names))
 
 
 def build_combinations(
@@ -693,14 +690,21 @@ def build_combinations(
     args,
     geojson_features: list[dict] | None = None,
 ) -> list[DetectedClimb]:
-    """For each ordered pair of climbs sharing an OSM node, build A_start → N → B_end and
-    re-run the climb detector on the joined polyline.
+    """For each ordered sequence of up to --max-combo climbs sharing OSM nodes at consecutive
+    junctions, build C0_start → N1 → ... → Nk-1 → Ck_end and re-run the climb detector on the
+    joined polyline.
 
     Combinations are explicitly allowed to cross highway types — that's the whole point,
     since the chain stitcher refuses to merge across highway-class transitions.
+
+    Walks the climb-adjacency graph by DFS up to depth max_combo. At depth k there are k-1
+    junctions; we require the detected climb to straddle all of them, so a k-deep combo that
+    only spans some junctions is dropped (it was already emitted at a shallower depth).
     """
     if not detected:
         return []
+
+    max_len = max(2, int(args.max_combo))
 
     # Index nodes → (climb_idx, position_in_climb).
     node_map: dict[tuple[float, float], list[tuple[int, int]]] = defaultdict(list)
@@ -708,88 +712,108 @@ def build_combinations(
         for pos, node in enumerate(dc.nodes):
             node_map[node].append((ci, pos))
 
-    processed: set[tuple[int, int]] = set()  # one combination per ordered (ca, cb)
+    processed_paths: set[tuple[int, ...]] = set()
     out: list[DetectedClimb] = []
 
-    for occurrences in node_map.values():
-        if len(occurrences) < 2:
-            continue
-        for ca, pa in occurrences:
-            for cb, pb in occurrences:
-                if ca == cb:
-                    continue
-                if (ca, cb) in processed:
-                    continue
-                a = detected[ca]
-                b = detected[cb]
-                # Need real material from each side: A's start through the junction,
-                # then B's tail past the junction.
-                if pa == 0:
-                    continue
-                if pb >= len(b.nodes) - 1:
-                    continue
+    def emit(path: list[int], splits: list[tuple[int, int]]) -> None:
+        first = detected[path[0]]
+        first_p = splits[0][0]
+        combined_nodes: list[tuple[float, float]] = list(first.nodes[: first_p + 1])
+        combined_node_way_ids: list[int] = list(first.node_way_ids[: first_p + 1])
+        combined_node_surfaces: list[str] = list(first.node_surfaces[: first_p + 1])
+        junction_indices = [first_p]
+        for i in range(1, len(path)):
+            mid = detected[path[i]]
+            q_prev = splits[i - 1][1]
+            seg_end = splits[i][0] + 1 if i < len(path) - 1 else len(mid.nodes)
+            combined_nodes.extend(mid.nodes[q_prev + 1 : seg_end])
+            combined_node_way_ids.extend(mid.node_way_ids[q_prev + 1 : seg_end])
+            combined_node_surfaces.extend(mid.node_surfaces[q_prev + 1 : seg_end])
+            if i < len(path) - 1:
+                junction_indices.append(len(combined_nodes) - 1)
 
-                combined_nodes = a.nodes[: pa + 1] + b.nodes[pb + 1 :]
-                combined_node_way_ids = a.node_way_ids[: pa + 1] + b.node_way_ids[pb + 1 :]
-                combined_node_surfaces = a.node_surfaces[: pa + 1] + b.node_surfaces[pb + 1 :]
-                if len(combined_nodes) < 2:
+        if len(combined_nodes) < 2:
+            return
+        combined_node_cum = cumulative_distances(combined_nodes)
+        if combined_node_cum[-1] < args.min_length:
+            return
+        junction_dists = [combined_node_cum[idx] for idx in junction_indices]
+
+        resampled = resample_way(combined_nodes, args.sample_step)
+        if resampled is None:
+            return
+        lats, lngs, cum = resampled
+        elev = sample_elevation(dem, lats, lngs)
+        if np.any(np.isnan(elev)):
+            return
+        elev = smooth(elev, args.smooth_window, args.sample_step)
+
+        members = [detected[ci] for ci in path]
+        unique_highways = unique_in_order([m.highway for m in members])
+        highway = unique_highways[0] if len(unique_highways) == 1 else "+".join(unique_highways)
+        name = combo_name([m.name for m in members])
+
+        for climb, ti, pi in detect_climbs(
+            lats, lngs, cum, elev,
+            args.min_length, args.min_grade, args.min_gain, args.prominence,
+        ):
+            start_d = float(cum[ti])
+            end_d = float(cum[pi])
+            # The detected climb must straddle every junction on the path; otherwise the
+            # detector just rediscovered a shorter combination already emitted at a
+            # shallower DFS depth (or a single climb in isolation).
+            if not all(start_d <= jd <= end_d for jd in junction_dists):
+                continue
+            climb_wids: list[int] = []
+            climb_surfs: list[str] = []
+            for cw, cs, cd in zip(
+                combined_node_way_ids, combined_node_surfaces, combined_node_cum
+            ):
+                if start_d <= cd <= end_d:
+                    climb_wids.append(cw)
+                    climb_surfs.append(cs)
+            dc = DetectedClimb(
+                climb=climb,
+                name=name,
+                surfaces=unique_in_order(climb_surfs),
+                highway=highway,
+                osm_way_ids=unique_in_order(climb_wids),
+                bidirectional=False,
+                elevation_profile=[float(x) for x in elev[ti : pi + 1]],
+                nodes=[],
+                node_way_ids=[],
+                node_surfaces=[],
+                is_combination=True,
+            )
+            out.append(dc)
+            if geojson_features is not None:
+                geojson_features.append(combination_feature(dc))
+
+    def extend(path: list[int], splits: list[tuple[int, int]], current_q: int) -> None:
+        if len(path) >= max_len:
+            return
+        curr = detected[path[-1]]
+        # Exit positions strictly after where we entered the current climb, so each
+        # member contributes at least one node to the combined polyline.
+        for p in range(current_q + 1, len(curr.nodes)):
+            for cj, qj in node_map[curr.nodes[p]]:
+                if cj in path:
                     continue
-                combined_node_cum = cumulative_distances(combined_nodes)
-                combined_total = combined_node_cum[-1]
-                if combined_total < args.min_length:
+                # Need real tail past the junction in the next climb.
+                if qj >= len(detected[cj].nodes) - 1:
                     continue
-
-                processed.add((ca, cb))
-
-                resampled = resample_way(combined_nodes, args.sample_step)
-                if resampled is None:
+                new_path = path + [cj]
+                key = tuple(new_path)
+                if key in processed_paths:
                     continue
-                lats, lngs, cum = resampled
-                elev = sample_elevation(dem, lats, lngs)
-                if np.any(np.isnan(elev)):
-                    continue
-                elev = smooth(elev, args.smooth_window, args.sample_step)
+                processed_paths.add(key)
+                new_splits = splits + [(p, qj)]
+                emit(new_path, new_splits)
+                extend(new_path, new_splits, qj)
 
-                # Where the junction sits on the combined polyline.
-                junction_dist = combined_node_cum[pa]
+    for ci in range(len(detected)):
+        extend([ci], [], 0)
 
-                highway = a.highway if a.highway == b.highway else f"{a.highway}+{b.highway}"
-                name = combo_name(a.name, b.name)
-
-                for climb, ti, pi in detect_climbs(
-                    lats, lngs, cum, elev,
-                    args.min_length, args.min_grade, args.min_gain, args.prominence,
-                ):
-                    # Only keep climbs that actually straddle the junction; otherwise the
-                    # detector just rediscovered A or B in isolation.
-                    start_d = float(cum[ti])
-                    end_d = float(cum[pi])
-                    if not (start_d <= junction_dist <= end_d):
-                        continue
-                    climb_wids: list[int] = []
-                    climb_surfs: list[str] = []
-                    for cw, cs, cd in zip(
-                        combined_node_way_ids, combined_node_surfaces, combined_node_cum
-                    ):
-                        if start_d <= cd <= end_d:
-                            climb_wids.append(cw)
-                            climb_surfs.append(cs)
-                    dc = DetectedClimb(
-                        climb=climb,
-                        name=name,
-                        surfaces=unique_in_order(climb_surfs),
-                        highway=highway,
-                        osm_way_ids=unique_in_order(climb_wids),
-                        bidirectional=False,
-                        elevation_profile=[float(x) for x in elev[ti : pi + 1]],
-                        nodes=[],
-                        node_way_ids=[],
-                        node_surfaces=[],
-                        is_combination=True,
-                    )
-                    out.append(dc)
-                    if geojson_features is not None:
-                        geojson_features.append(combination_feature(dc))
     return out
 
 
@@ -988,6 +1012,7 @@ def main() -> int:
     ap.add_argument("--sample-step", type=float, default=10.0, help="Resample spacing (m)")
     ap.add_argument("--smooth-window", type=float, default=100.0, help="Elevation smoothing window (m)")
     ap.add_argument("--prominence", type=float, default=10.0, help="Peak prominence threshold (m)")
+    ap.add_argument("--max-combo", type=int, default=4, help="Max climbs to chain into a combination (>= 2)")
     ap.add_argument("--dry-run", action="store_true", help="Print stats, don't insert")
     ap.add_argument("-v", "--verbose", action="store_true", help="Print each detected climb")
     ap.add_argument(

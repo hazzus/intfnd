@@ -163,9 +163,13 @@
         a climb you can actually finish in roughly 5 minutes at your power.
       </p>
       <p>
-        Segment data is imported from OpenStreetMap once per region. Ride times are estimated
-        with a standard three-force cycling power model (gravity, rolling resistance, and
+        Segment data is imported from OpenStreetMap once per region, elevation data is imported from SRTM_GL1_Ellip.
+        Ride times are estimated with a standard three-force cycling power model (gravity, rolling resistance, and
         aerodynamic drag), solved numerically for steady-state speed.
+      </p>
+      <p>
+        Segment data has a score, we punish for intersections, uneven gradient and high degree turns. Time
+        to complete and score define the sort of the search result.
       </p>
     </section>
 
