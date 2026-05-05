@@ -13,6 +13,7 @@ pub struct Climb {
     pub polyline: Option<String>,
     pub surfaces: Vec<String>,
     pub is_paved: bool,
+    pub bidirectional: bool,
     pub score: f64,
 }
 

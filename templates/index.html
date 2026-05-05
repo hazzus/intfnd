@@ -194,6 +194,10 @@
       <input id="paved-only" type="checkbox">
       paved only
     </label>
+    <label class="toggle">
+      <input id="bidirectional-only" type="checkbox">
+      bidirectional only
+    </label>
     <div id="results"></div>
   </div>
 </main>
@@ -310,16 +314,18 @@
   function renderResults() {
     const resultsEl = document.getElementById('results');
     const pavedOnly = document.getElementById('paved-only').checked;
-    const filtered = pavedOnly
-      ? lastResults.filter(s => s.is_paved === true)
-      : lastResults;
+    const bidirectionalOnly = document.getElementById('bidirectional-only').checked;
+    const filtered = lastResults.filter(s =>
+      (!pavedOnly || s.is_paved === true) &&
+      (!bidirectionalOnly || s.bidirectional === true)
+    );
 
     if (!lastResults.length) {
       resultsEl.innerHTML = '<p class="no-results">No matching climbs in this area.</p>';
       return;
     }
     if (!filtered.length) {
-      resultsEl.innerHTML = '<p class="no-results">No paved climbs in these results.</p>';
+      resultsEl.innerHTML = '<p class="no-results">No climbs match the selected filters.</p>';
       return;
     }
 
@@ -378,6 +384,7 @@
   }
 
   document.getElementById('paved-only').addEventListener('change', renderResults);
+  document.getElementById('bidirectional-only').addEventListener('change', renderResults);
 
   ['weight', 'power', 'interval'].forEach(id => {
     document.getElementById(id).addEventListener('keydown', e => {
@@ -431,6 +438,7 @@
         radius: circleRadius,
         weight, power, interval,
         pavedOnly: document.getElementById('paved-only').checked,
+        bidirectionalOnly: document.getElementById('bidirectional-only').checked,
         results: lastResults,
       }));
     } catch {
@@ -447,6 +455,7 @@
     if (saved.power    != null) document.getElementById('power').value    = saved.power;
     if (saved.interval != null) document.getElementById('interval').value = saved.interval;
     if (saved.pavedOnly) document.getElementById('paved-only').checked = true;
+    if (saved.bidirectionalOnly) document.getElementById('bidirectional-only').checked = true;
     if (Array.isArray(saved.results)) {
       lastResults = saved.results;
       renderResults();

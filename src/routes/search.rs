@@ -35,6 +35,7 @@ pub struct SearchResult {
     pub polyline: Option<String>,
     pub surfaces: Vec<String>,
     pub is_paved: bool,
+    pub bidirectional: bool,
     pub score: f64,
 }
 
@@ -55,7 +56,7 @@ pub async fn search(
     info!(lat = req.lat, lng = req.lng, radius_m = req.radius_m, weight_kg = req.weight_kg, power_w = req.power_w, interval_s = req.interval_s, "search request");
 
     let climbs = match sqlx::query_as::<_, Climb>(
-        "SELECT id, name, distance, average_grade, start_lat, start_lng, polyline, surfaces, is_paved, score
+        "SELECT id, name, distance, average_grade, start_lat, start_lng, polyline, surfaces, is_paved, bidirectional, score
          FROM climbs
          WHERE ST_DWithin(
              ST_MakePoint(start_lng, start_lat)::geography,
@@ -103,6 +104,7 @@ pub async fn search(
                 surfaces: seg.surfaces,
                 score: seg.score,
                 is_paved: seg.is_paved,
+                bidirectional: seg.bidirectional,
             })
         })
         .collect();
