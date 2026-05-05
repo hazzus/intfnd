@@ -652,8 +652,16 @@ def bearing(a: tuple[float, float], b: tuple[float, float]) -> float:
 # Saturation thresholds: subscore reaches 1.0 (worst) when its raw measurement
 # hits the threshold. Lower threshold → faster saturation → harsher penalty.
 SCORE_INTER_NORM = 5.0    # intersections per km
-SCORE_TURN_NORM = 120.0   # average turn at junctions, degrees
+SCORE_TURN_NORM = 1.5     # sum((angle/ref)^2) / km^TURN_LENGTH_EXP
 SCORE_SPIKE_NORM = 6.0    # max grade deviation / avg grade (unitless ratio)
+
+# Per-turn severity = (angle / TURN_REF_DEG)^2: super-linear so a single 90° turn
+# (severity 1.0) outweighs four 30° turns (4 × 0.111 = 0.44). Severity is summed
+# over the climb, then divided by length_km^TURN_LENGTH_EXP — sub-linear length
+# normalization so a long climb with many gentle bends isn't over-penalised but
+# a single sharp turn on a long climb isn't washed out either.
+SCORE_TURN_REF_DEG = 90.0
+SCORE_TURN_LENGTH_EXP = 0.5
 
 # Weights mixing the three saturated subscores into the final score.
 # Should sum to 1.0 if you want the final score to stay in [0, 1].
@@ -679,7 +687,8 @@ def score_breakdown(
         return {
             "intersections": 0, "turn_sum_deg": 0.0, "length_km": 0.0,
             "inter_density": 0.0, "inter_score": 0.0,
-            "avg_turn_deg": 0.0, "turn_score": 0.0,
+            "avg_turn_deg": 0.0, "turn_severity_total": 0.0,
+            "turn_severity": 0.0, "turn_score": 0.0,
             "avg_grade": 0.0, "max_spike_dev": 0.0,
             "spike_ratio": 0.0, "spike_score": 0.0,
             "score": 1.0,
@@ -687,6 +696,7 @@ def score_breakdown(
 
     intersections = 0
     turn_sum_deg = 0.0
+    turn_severity_total = 0.0
     for i in range(1, len(nodes) - 1):
         if node_degree.get(nodes[i], 0) < 3:
             continue
@@ -695,12 +705,14 @@ def score_breakdown(
         if d > 180.0:
             d = 360.0 - d
         turn_sum_deg += d
+        turn_severity_total += (d / SCORE_TURN_REF_DEG) ** 2
 
     length_km = max(length_m / 1000.0, 0.1)
     inter_density = intersections / length_km
     inter_score = min(1.0, inter_density / SCORE_INTER_NORM)
     avg_turn_deg = (turn_sum_deg / intersections) if intersections else 0.0
-    turn_score = min(1.0, avg_turn_deg / SCORE_TURN_NORM) if intersections else 0.0
+    turn_severity = turn_severity_total / (length_km ** SCORE_TURN_LENGTH_EXP)
+    turn_score = min(1.0, turn_severity / SCORE_TURN_NORM)
 
     if len(elevation_profile) >= 3 and sample_step > 0:
         elev_arr = np.asarray(elevation_profile, dtype=float)
@@ -725,7 +737,9 @@ def score_breakdown(
         "intersections": intersections, "turn_sum_deg": turn_sum_deg,
         "length_km": length_km, "inter_density": inter_density,
         "inter_score": inter_score, "avg_turn_deg": avg_turn_deg,
-        "turn_score": turn_score, "avg_grade": avg_grade,
+        "turn_severity_total": turn_severity_total,
+        "turn_severity": turn_severity, "turn_score": turn_score,
+        "avg_grade": avg_grade,
         "max_spike_dev": max_spike_dev, "spike_ratio": spike_ratio,
         "spike_score": spike_score, "score": score,
     }
@@ -771,9 +785,9 @@ def log_score_stats(detected: list["DetectedClimb"]) -> None:
         )
 
     raw_keys = [
-        ("intersections / km", "inter_density", "%6.2f", SCORE_INTER_NORM),
-        ("avg turn (deg)    ", "avg_turn_deg",  "%6.1f", SCORE_TURN_NORM),
-        ("spike ratio       ", "spike_ratio",   "%6.2f", SCORE_SPIKE_NORM),
+        ("intersections / km", "inter_density",  "%6.2f", SCORE_INTER_NORM),
+        ("turn severity / √km", "turn_severity", "%6.2f", SCORE_TURN_NORM),
+        ("spike ratio       ", "spike_ratio",    "%6.2f", SCORE_SPIKE_NORM),
     ]
     sat_keys = [
         ("inter_score", "inter_score", SCORE_WEIGHT_INTER),
