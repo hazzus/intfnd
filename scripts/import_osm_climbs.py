@@ -871,6 +871,97 @@ def combo_name(names: list[str]) -> str:
     return " + ".join(unique_in_order(names))
 
 
+def detect_in_chain(
+    chain: Chain,
+    dem,
+    args,
+    node_degree: dict[tuple[float, float], int],
+) -> list[DetectedClimb]:
+    """Run the per-chain climb detection pipeline. No side effects (no geojson, no logs).
+
+    The chain should already be rotated for closed loops. Returns a list of fully-populated
+    DetectedClimb objects (with score and score_components). Used by both the main detection
+    loop and the --debug-way branch.
+    """
+    out: list[DetectedClimb] = []
+
+    resampled = resample_way(chain.coords, args.sample_step)
+    if resampled is None:
+        return out
+    lats, lngs, cum = resampled
+    if cum[-1] < args.min_length:
+        return out
+    elev = sample_elevation(dem, lats, lngs)
+    if np.any(np.isnan(elev)):
+        return out
+    elev = smooth(elev, args.smooth_window, args.sample_step)
+
+    chain_cum = cumulative_distances(chain.coords)
+    chain_total = chain_cum[-1] if chain_cum else 0.0
+
+    passes: list[tuple[bool, np.ndarray, np.ndarray, np.ndarray, np.ndarray]] = [
+        (False, lats, lngs, cum, elev),
+    ]
+    if chain.bidirectional:
+        rl, rln, rc, re_ = reverse_profile(lats, lngs, cum, elev)
+        passes.append((True, rl, rln, rc, re_))
+
+    chain_name = chain_display_name(chain)
+
+    for reversed_pass, p_lats, p_lngs, p_cum, p_elev in passes:
+        for climb, ti, pi in detect_climbs(
+            p_lats, p_lngs, p_cum, p_elev,
+            args.min_length, args.min_grade, args.min_gain, args.prominence,
+        ):
+            nodes, node_wids, node_surfs = chain_node_slice(
+                chain, chain_cum, chain_total, p_cum, ti, pi, reversed_pass,
+            )
+            elevation_profile = [float(x) for x in p_elev[ti : pi + 1]]
+            sb = score_breakdown(
+                nodes, elevation_profile, climb.length_m,
+                args.sample_step, node_degree,
+            )
+            out.append(DetectedClimb(
+                climb=climb,
+                name=chain_name,
+                surfaces=unique_in_order(node_surfs),
+                highway=chain.highway,
+                osm_way_ids=unique_in_order(node_wids),
+                bidirectional=chain.bidirectional,
+                elevation_profile=elevation_profile,
+                nodes=nodes,
+                node_way_ids=node_wids,
+                node_surfaces=node_surfs,
+                score=sb["score"],
+                score_components=sb,
+            ))
+    return out
+
+
+def print_score_breakdown_lines(sb: dict, indent: str = "      ") -> None:
+    """Print the four-line score-component breakdown shared by debug_chain and debug_combinations."""
+    inter_w = SCORE_WEIGHT_INTER * sb["inter_score"]
+    turn_w = SCORE_WEIGHT_TURN * sb["turn_score"]
+    spike_w = SCORE_WEIGHT_SPIKE * sb["spike_score"]
+    print(f"{indent}score = {sb['score']:.3f}  (lower is better)")
+    print(
+        f"{indent}intersections : {sb['intersections']:>3} on {sb['length_km']:.2f} km "
+        f"({sb['inter_density']:.2f}/km, capped at {SCORE_INTER_NORM:g}/km) → "
+        f"inter_score={sb['inter_score']:.3f} × {SCORE_WEIGHT_INTER:g} = {inter_w:.3f}"
+    )
+    print(
+        f"{indent}avg turn      : {sb['avg_turn_deg']:5.1f}° "
+        f"(capped at {SCORE_TURN_NORM:g}°) → "
+        f"turn_score={sb['turn_score']:.3f} × {SCORE_WEIGHT_TURN:g} = {turn_w:.3f}"
+    )
+    print(
+        f"{indent}spike         : worst |step − avg| = {sb['max_spike_dev']*100:5.2f}% "
+        f"vs avg {sb['avg_grade']*100:.2f}% → ratio {sb['spike_ratio']:.2f}× "
+        f"(capped at {SCORE_SPIKE_NORM:g}×) → "
+        f"spike_score={sb['spike_score']:.3f} × {SCORE_WEIGHT_SPIKE:g} = {spike_w:.3f}"
+    )
+
+
 def build_combinations(
     detected: list[DetectedClimb],
     dem,
@@ -1136,30 +1227,11 @@ def debug_chain(
             )
             elevation_profile = [float(x) for x in p_elev[ti : pi + 1]]
             sb = score_breakdown(nodes, elevation_profile, length, args.sample_step, node_degree)
-            inter_w = SCORE_WEIGHT_INTER * sb["inter_score"]
-            turn_w = SCORE_WEIGHT_TURN * sb["turn_score"]
-            spike_w = SCORE_WEIGHT_SPIKE * sb["spike_score"]
             print(
                 f"    climb trough@{ti}→peak@{pi}  ({length:.0f} m, {grade*100:.2f}%, +{gain:.1f} m, "
                 f"{len(nodes)} chain nodes)"
             )
-            print(f"      score = {sb['score']:.3f}  (lower is better)")
-            print(
-                f"      intersections : {sb['intersections']:>3} on {sb['length_km']:.2f} km "
-                f"({sb['inter_density']:.2f}/km, capped at {SCORE_INTER_NORM:g}/km) → "
-                f"inter_score={sb['inter_score']:.3f} × {SCORE_WEIGHT_INTER:g} = {inter_w:.3f}"
-            )
-            print(
-                f"      avg turn      : {sb['avg_turn_deg']:5.1f}° "
-                f"(capped at {SCORE_TURN_NORM:g}°) → "
-                f"turn_score={sb['turn_score']:.3f} × {SCORE_WEIGHT_TURN:g} = {turn_w:.3f}"
-            )
-            print(
-                f"      spike         : worst |step − avg| = {sb['max_spike_dev']*100:5.2f}% "
-                f"vs avg {sb['avg_grade']*100:.2f}% → ratio {sb['spike_ratio']:.2f}× "
-                f"(capped at {SCORE_SPIKE_NORM:g}×) → "
-                f"spike_score={sb['spike_score']:.3f} × {SCORE_WEIGHT_SPIKE:g} = {spike_w:.3f}"
-            )
+            print_score_breakdown_lines(sb, indent="      ")
 
     if args.debug_plot:
         import matplotlib.pyplot as plt
@@ -1205,6 +1277,45 @@ def debug_chain(
         fig.savefig(out_path, dpi=120)
         plt.close(fig)
         print(f"  plot saved: {out_path}")
+
+
+def debug_combinations(
+    chains: list[Chain],
+    only_ids: set[int],
+    dem,
+    args,
+    node_degree: dict[tuple[float, float], int],
+) -> None:
+    """Run the full per-chain + combination pipeline (silently) and print every climb
+    whose osm_way_ids intersect only_ids."""
+    print("\n=== combination climbs touching requested way(s) ===")
+    detected: list[DetectedClimb] = []
+    for chain in tqdm(chains, unit="chain", desc="detect"):
+        chain = rotate_loop_chain(chain, dem)
+        detected.extend(detect_in_chain(chain, dem, args, node_degree))
+
+    print(f"  detected {len(detected)} per-chain climbs; building combinations...")
+    combinations = build_combinations(detected, dem, args, node_degree)
+    print(f"  built {len(combinations)} combination climb(s)")
+
+    tagged = [("chain", dc) for dc in detected] + [("combo", dc) for dc in combinations]
+    matches = [(kind, dc) for kind, dc in tagged if only_ids & set(dc.osm_way_ids)]
+    matches.sort(key=lambda kd: kd[1].score)
+
+    print(f"  {len(matches)} climb(s) include way(s) {sorted(only_ids)}:")
+    if not matches:
+        return
+
+    for kind, dc in matches:
+        print(
+            f"\n  {kind}: {dc.name}  "
+            f"({dc.climb.length_m:.0f} m, {dc.climb.grade*100:.2f}%, +{dc.climb.gain_m:.1f} m)"
+        )
+        print(f"    way_ids: {dc.osm_way_ids}")
+        print(f"    surfaces: {dc.surfaces}  highway: {dc.highway}")
+        print(f"    start: {dc.climb.coords[0][0]:.5f},{dc.climb.coords[0][1]:.5f}")
+        if dc.score_components:
+            print_score_breakdown_lines(dc.score_components, indent="    ")
 
 
 def deduplicate_climbs(
@@ -1361,6 +1472,7 @@ def main() -> int:
             missing = only_ids - all_way_ids
             if missing:
                 print(f"\nNOT FOUND in PBF: {sorted(missing)}")
+            debug_combinations(chains, only_ids, dem, args, node_degree)
         finally:
             dem.close()
         return 0
