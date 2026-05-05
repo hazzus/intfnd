@@ -108,6 +108,19 @@
     .surface-paved { background: #eef; color: #335; }
     .surface-unpaved { background: #f5ecdf; color: #7a4a1c; }
 
+    .direction-tag {
+      display: inline-block;
+      font-size: 0.7rem;
+      padding: 2px 6px;
+      border-radius: 3px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .direction-bidi { background: #e7f4ea; color: #2d6a3a; }
+    .direction-oneway { background: #f4ece7; color: #6a3a2d; }
+
+    .climb-tags { display: flex; gap: 4px; flex-wrap: wrap; flex-shrink: 0; }
+
     .stats {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -279,6 +292,8 @@
 
   function renderInfo(c) {
     const surfaceLabel = c.is_paved ? 'paved' : 'unpaved';
+    const directionLabel = c.bidirectional ? 'bidirectional' : 'one-way';
+    const directionClass = c.bidirectional ? 'direction-bidi' : 'direction-oneway';
     const distanceKm = (c.distance / 1000).toFixed(2);
     const elev = c.elevation_profile || [];
     const elevGain = elev.length >= 2
@@ -308,7 +323,10 @@
     document.getElementById('climb-info').innerHTML = `
       <div class="climb-header">
         <span class="climb-name">${c.name}</span>
-        <span class="surface-tag surface-${surfaceLabel}">${surfaceLabel}</span>
+        <div class="climb-tags">
+          <span class="surface-tag surface-${surfaceLabel}">${surfaceLabel}</span>
+          <span class="direction-tag ${directionClass}">${directionLabel}</span>
+        </div>
       </div>
       <div class="stats">
         <div class="stat">

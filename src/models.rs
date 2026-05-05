@@ -28,6 +28,7 @@ pub struct ClimbDetails {
     pub polyline: Option<String>,
     pub surfaces: Vec<String>,
     pub is_paved: bool,
+    pub bidirectional: bool,
     pub score: f64,
     pub elevation_profile: Vec<f32>,
     pub osm_way_ids: Vec<i64>,

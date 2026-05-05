@@ -88,6 +88,9 @@
       width: 100%;
     }
     input[type=number]:focus { outline: none; border-color: #fc4c02; }
+    input[type=range] { flex: 1; accent-color: #fc4c02; min-width: 0; }
+    .radius-row { display: flex; align-items: center; gap: 8px; font-size: 0.85rem; color: #555; }
+    .radius-row input[type=number] { width: 70px; padding: 6px 8px; }
 
     #find-btn {
       padding: 10px;
@@ -171,7 +174,7 @@
 
 <main>
   <div id="map-panel">
-    <p class="map-hint">double-click to place a pin (2 km radius) &nbsp;·&nbsp; double-click and drag to set a custom radius</p>
+    <p class="map-hint">tap the map to place a pin &nbsp;·&nbsp; use the slider to set the search radius</p>
     <div id="map"></div>
   </div>
 
@@ -187,6 +190,14 @@
     <div class="field">
       <label for="interval">interval (s)</label>
       <input id="interval" type="number" min="1" placeholder="e.g. 300">
+    </div>
+    <div class="field">
+      <label for="radius">search radius</label>
+      <div class="radius-row">
+        <input id="radius" type="range" min="500" max="50000" step="100" value="2000">
+        <input id="radius-km" type="number" min="0.1" step="0.1" value="2.0">
+        <span>km</span>
+      </div>
     </div>
     <div id="warnings"></div>
     <button id="find-btn">find</button>
@@ -233,9 +244,19 @@
   let circleRadius = 2000;
   let marker = null;
   let circle = null;
-  let isDragging = false;
-  let dragStart = null;
   let hoverLayers = [];
+
+  const radiusInput = document.getElementById('radius');
+  const radiusKmInput = document.getElementById('radius-km');
+  const SLIDER_MAX = parseInt(radiusInput.max, 10);
+
+  function setRadius(meters, source) {
+    if (!Number.isFinite(meters) || meters < 100) return;
+    circleRadius = meters;
+    if (source !== 'slider') radiusInput.value = Math.min(meters, SLIDER_MAX);
+    if (source !== 'km') radiusKmInput.value = (meters / 1000).toFixed(1);
+    if (circle) circle.setRadius(meters);
+  }
 
   function clearHover() {
     hoverLayers.forEach(l => l.remove());
@@ -272,34 +293,16 @@
     }).addTo(map);
   }
 
-  map.doubleClickZoom.disable();
-
-  map.on('mousedown', e => {
-    if (e.originalEvent.detail < 2) return;
-    isDragging = true;
-    dragStart = e.latlng;
-    map.dragging.disable();
-    placePin(dragStart, 2000);
+  map.on('click', e => {
+    placePin(e.latlng, circleRadius);
   });
 
-  map.on('mousemove', e => {
-    if (!isDragging || !dragStart) return;
-    const r = dragStart.distanceTo(e.latlng);
-    if (r > 100 && circle) circle.setRadius(r);
+  radiusInput.addEventListener('input', () => {
+    setRadius(parseInt(radiusInput.value, 10), 'slider');
   });
-
-  map.on('mouseup', e => {
-    if (!isDragging) return;
-    isDragging = false;
-    map.dragging.enable();
-    const r = dragStart.distanceTo(e.latlng);
-    if (r > 100) {
-      circleRadius = r;
-      if (circle) circle.setRadius(r);
-    } else {
-      circleRadius = 2000;
-      if (circle) circle.setRadius(2000);
-    }
+  radiusKmInput.addEventListener('input', () => {
+    const km = parseFloat(radiusKmInput.value);
+    if (Number.isFinite(km) && km > 0) setRadius(km * 1000, 'km');
   });
 
   // ── search ─────────────────────────────────────────────────
@@ -450,7 +453,8 @@
   });
 
   if (saved) {
-    if (saved.pin) placePin(L.latLng(saved.pin.lat, saved.pin.lng), saved.radius || 2000);
+    if (saved.radius) setRadius(saved.radius);
+    if (saved.pin) placePin(L.latLng(saved.pin.lat, saved.pin.lng), circleRadius);
     if (saved.weight   != null) document.getElementById('weight').value   = saved.weight;
     if (saved.power    != null) document.getElementById('power').value    = saved.power;
     if (saved.interval != null) document.getElementById('interval').value = saved.interval;
