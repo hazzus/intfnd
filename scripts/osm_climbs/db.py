@@ -19,7 +19,7 @@ def to_climb_row(dc: DetectedClimb) -> dict:
         "elevation_profile": [float(x) for x in dc.elevation_profile],
         "osm_way_ids": [int(x) for x in dc.osm_way_ids],
         "bidirectional": bool(dc.bidirectional),
-        "score": float(dc.score),
+        "score": 1.0 - float(dc.score),
     }
 
 

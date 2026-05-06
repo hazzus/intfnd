@@ -119,7 +119,7 @@ def build_combinations(
             elevation_profile = [float(x) for x in elev[ti : pi + 1]]
             sb = score_breakdown(
                 climb_nodes, elevation_profile, climb.length_m,
-                args.sample_step, node_degree,
+                args.sample_step, node_degree, climb_wids,
             )
             dc = DetectedClimb(
                 climb=climb,

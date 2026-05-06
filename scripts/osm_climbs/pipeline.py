@@ -28,6 +28,7 @@ from .geo import cumulative_distances, resample_way
 from .geojson_out import chain_feature, climb_feature, write_geojson
 from .osm_load import Way
 from .score import log_score_stats, score_breakdown
+from .strip import strip_climbs
 
 log = logging.getLogger(__name__)
 
@@ -82,7 +83,7 @@ def detect_all(
                 elevation_profile = [float(x) for x in p_elev[ti : pi + 1]]
                 sb = score_breakdown(
                     nodes, elevation_profile, climb.length_m,
-                    args.sample_step, node_degree,
+                    args.sample_step, node_degree, node_wids,
                 )
                 dc = DetectedClimb(
                     climb=climb,
@@ -166,6 +167,23 @@ def run_pipeline(
                 dc.climb.gain_m,
             )
     detected.extend(combinations)
+
+    before_strip = len(detected)
+    detected, stripped, strip_dropped = strip_climbs(
+        detected,
+        args.max_strip,
+        args.strip_degree,
+        args.sample_step,
+        args.min_length,
+        args.min_grade,
+        args.min_gain,
+        node_degree,
+        debug=getattr(args, "debug_strip", False),
+    )
+    log.info(
+        "stripped %d / %d climbs at sharp intersections within %.0f m (>= %.0f°); dropped %d sub-threshold",
+        stripped, before_strip, args.max_strip, args.strip_degree, strip_dropped,
+    )
 
     before = len(detected)
     detected, dropped = deduplicate_climbs(detected, args.max_similarity)

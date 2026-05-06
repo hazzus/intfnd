@@ -222,7 +222,7 @@ def detect_in_chain(
             elevation_profile = [float(x) for x in p_elev[ti : pi + 1]]
             sb = score_breakdown(
                 nodes, elevation_profile, climb.length_m,
-                args.sample_step, node_degree,
+                args.sample_step, node_degree, node_wids,
             )
             out.append(DetectedClimb(
                 climb=climb,

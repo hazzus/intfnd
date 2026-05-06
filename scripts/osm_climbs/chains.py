@@ -223,6 +223,15 @@ def rotate_loop_chain(chain: Chain, dem) -> Chain:
     )
 
 
+def compute_node_ways(ways: list[Way]) -> dict[tuple[float, float], set[int]]:
+    """Map each node coord to the set of cyclable way ids touching it."""
+    node_ways: dict[tuple[float, float], set[int]] = defaultdict(set)
+    for w in ways:
+        for c in w.coords:
+            node_ways[c].add(w.id)
+    return node_ways
+
+
 def compute_node_degree(ways: list[Way]) -> dict[tuple[float, float], int]:
     """Number of distinct cyclable ways touching each node coord.
 
@@ -230,11 +239,7 @@ def compute_node_degree(ways: list[Way]) -> dict[tuple[float, float], int]:
     chain continuation. OSM normally splits ways at junctions, so junction nodes
     surface here as the endpoints shared between multiple ways.
     """
-    node_ways: dict[tuple[float, float], set[int]] = defaultdict(set)
-    for w in ways:
-        for c in w.coords:
-            node_ways[c].add(w.id)
-    return {k: len(v) for k, v in node_ways.items()}
+    return {k: len(v) for k, v in compute_node_ways(ways).items()}
 
 
 def chain_display_name(chain: Chain) -> str:

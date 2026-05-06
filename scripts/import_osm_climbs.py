@@ -18,7 +18,8 @@ import sys
 
 import rasterio
 
-from osm_climbs.chains import build_chains, compute_node_degree
+from osm_climbs import score
+from osm_climbs.chains import build_chains, compute_node_ways
 from osm_climbs.debug import run_debug
 from osm_climbs.osm_load import load_ways
 from osm_climbs.pipeline import run_pipeline
@@ -41,6 +42,15 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--smooth-window", type=float, default=100.0, help="Elevation smoothing window (m)")
     ap.add_argument("--prominence", type=float, default=10.0, help="Peak prominence threshold (m)")
     ap.add_argument("--max-combo", type=int, default=4, help="Max climbs to chain into a combination (>= 2)")
+    ap.add_argument("--max-strip", type=float, default=200.0,
+                    help="Max distance (m) from a climb's start to look for a sharp intersection. "
+                         "If hit, the prefix is stripped and the climb restarts at the intersection.")
+    ap.add_argument("--strip-degree", type=float, default=45.0,
+                    help="Min turn angle (degrees) at an intersection to trigger prefix stripping.")
+    ap.add_argument("--debug-strip", action="store_true",
+                    help="Print a per-climb trace of the strip stage's decisions: nodes walked "
+                         "within --max-strip, intersection/turn checks, and the final outcome "
+                         "(stripped, dropped sub-threshold, or kept unchanged).")
     ap.add_argument("--max-similarity", type=float, default=0.85,
                     help="Drop climbs whose node-set Jaccard overlap with another's >= this; "
                          "the climb with the lower score survives. Use 1.0 to disable.")
@@ -82,8 +92,11 @@ def main() -> int:
         return 1
     log.info("loaded %d ways", len(ways))
 
-    log.info("computing node degrees")
-    node_degree = compute_node_degree(ways)
+    log.info("computing node→ways map")
+    node_ways_map = compute_node_ways(ways)
+    node_degree = {k: len(v) for k, v in node_ways_map.items()}
+    way_highways = {w.id: w.highway for w in ways}
+    score.configure_intersection_lookups(node_ways_map, way_highways)
 
     log.info("stitching chains")
     chains = build_chains(ways)

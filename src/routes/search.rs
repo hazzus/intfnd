@@ -46,7 +46,7 @@ pub fn calc_score(result: &SearchResult, request: &SearchRequest) -> f64 {
     let time_score = (result.delta_s / request.interval_s).powi(2);
     let distance_score: f64 = 0.; // TODO calculate distance haversine, geo crate + map into [0, 1] by radius
 
-    time_score + DISTANCE_WEIGHT * distance_score + SCORE_WEIGHT * result.score
+    time_score + DISTANCE_WEIGHT * distance_score - SCORE_WEIGHT * result.score
 }
 
 pub async fn search(

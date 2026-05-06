@@ -11,6 +11,7 @@ from tqdm import tqdm
 
 from .chains import (
     Chain,
+    compute_node_ways,
     rotate_loop_chain,
 )
 from .combine import build_combinations
@@ -24,6 +25,24 @@ from .elevation import reverse_profile, sample_elevation, smooth
 from .geo import cumulative_distances, resample_way, way_length_m
 from .osm_load import Way
 from .score import print_score_breakdown_lines, score_breakdown
+from .strip import strip_climbs
+
+
+def make_other_highways_at(
+    node_ways_map: dict[tuple[float, float], set[int]],
+    way_highways: dict[int, str],
+    on_climb_ways: set[int],
+):
+    """Return a callable: node → sorted list of crossing ways' highway tags.
+
+    "Crossing" means a way that touches this node but isn't part of the climb's
+    chain. Ways the climb itself runs along are excluded so the annotation only
+    shows what *branches off* at the intersection.
+    """
+    def f(node: tuple[float, float]) -> list[str]:
+        ws = node_ways_map.get(node, set()) - on_climb_ways
+        return sorted({way_highways[w] for w in ws if w in way_highways})
+    return f
 
 
 def debug_chain(
@@ -32,6 +51,8 @@ def debug_chain(
     dem,
     args,
     node_degree: dict[tuple[float, float], int],
+    node_ways_map: dict[tuple[float, float], set[int]],
+    way_highways: dict[int, str],
 ) -> None:
     print(f"\n=== chain (seed way {chain.primary_id}, {len(chain.way_ids)} way(s)) ===")
     print(f"  way_ids: {chain.way_ids}")
@@ -142,16 +163,38 @@ def debug_chain(
         if accepted:
             print(f"  score breakdown for {len(accepted)} accepted climb(s):")
         for ti, pi, length, grade, gain in accepted:
-            nodes, _, _ = chain_node_slice(
+            nodes, wids, _ = chain_node_slice(
                 chain, chain_cum, chain_total, p_cum, ti, pi, reversed_pass,
             )
             elevation_profile = [float(x) for x in p_elev[ti : pi + 1]]
-            sb = score_breakdown(nodes, elevation_profile, length, args.sample_step, node_degree)
+            sb = score_breakdown(
+                nodes, elevation_profile, length, args.sample_step, node_degree, wids,
+            )
             print(
                 f"    climb trough@{ti}→peak@{pi}  ({length:.0f} m, {grade*100:.2f}%, +{gain:.1f} m, "
                 f"{len(nodes)} chain nodes)"
             )
-            print_score_breakdown_lines(sb, indent="      ")
+            other_at = make_other_highways_at(node_ways_map, way_highways, set(wids))
+            print_score_breakdown_lines(sb, indent="      ", other_highways_at=other_at)
+
+    if getattr(args, "debug_strip", False):
+        # Re-run the per-chain detector to get full DetectedClimb objects, then
+        # feed them through the strip stage with debug=True so each climb's
+        # walked-nodes trace and outcome land in the --debug-way report.
+        strip_inputs = detect_in_chain(chain, dem, args, node_degree)
+        if strip_inputs:
+            print(f"\n  --- strip stage ({len(strip_inputs)} climb(s)) ---")
+            strip_climbs(
+                strip_inputs,
+                args.max_strip,
+                args.strip_degree,
+                args.sample_step,
+                args.min_length,
+                args.min_grade,
+                args.min_gain,
+                node_degree,
+                debug=True,
+            )
 
     if args.debug_plot:
         import matplotlib.pyplot as plt
@@ -201,6 +244,8 @@ def debug_combinations(
     dem,
     args,
     node_degree: dict[tuple[float, float], int],
+    node_ways_map: dict[tuple[float, float], set[int]],
+    way_highways: dict[int, str],
 ) -> None:
     """Run the full per-chain + combination pipeline (silently) and print every climb
     whose osm_way_ids intersect only_ids."""
@@ -231,7 +276,28 @@ def debug_combinations(
         print(f"    surfaces: {dc.surfaces}  highway: {dc.highway}")
         print(f"    start: {dc.climb.coords[0][0]:.5f},{dc.climb.coords[0][1]:.5f}")
         if dc.score_components:
-            print_score_breakdown_lines(dc.score_components, indent="    ")
+            other_at = make_other_highways_at(
+                node_ways_map, way_highways, set(dc.osm_way_ids)
+            )
+            print_score_breakdown_lines(
+                dc.score_components, indent="    ", other_highways_at=other_at
+            )
+
+    if getattr(args, "debug_strip", False):
+        strip_inputs = [dc for _, dc in matches]
+        if strip_inputs:
+            print(f"\n  --- strip stage ({len(strip_inputs)} matched climb(s)) ---")
+            strip_climbs(
+                strip_inputs,
+                args.max_strip,
+                args.strip_degree,
+                args.sample_step,
+                args.min_length,
+                args.min_grade,
+                args.min_gain,
+                node_degree,
+                debug=True,
+            )
 
 
 def run_debug(
@@ -244,6 +310,8 @@ def run_debug(
 ) -> None:
     """Entry point invoked from import_osm_climbs.py when --debug-way is set."""
     ways_by_id = {w.id: w for w in ways}
+    way_highways = {w.id: w.highway for w in ways}
+    node_ways_map = compute_node_ways(ways)
     seen_chains: set[int] = set()
     for chain_idx, chain in enumerate(chains):
         if not (only_ids & set(chain.way_ids)):
@@ -251,9 +319,16 @@ def run_debug(
         if chain_idx in seen_chains:
             continue
         seen_chains.add(chain_idx)
-        debug_chain(rotate_loop_chain(chain, dem), ways_by_id, dem, args, node_degree)
+        debug_chain(
+            rotate_loop_chain(chain, dem),
+            ways_by_id, dem, args, node_degree,
+            node_ways_map, way_highways,
+        )
     all_way_ids = {w.id for w in ways}
     missing = only_ids - all_way_ids
     if missing:
         print(f"\nNOT FOUND in PBF: {sorted(missing)}")
-    debug_combinations(chains, only_ids, dem, args, node_degree)
+    debug_combinations(
+        chains, only_ids, dem, args, node_degree,
+        node_ways_map, way_highways,
+    )
