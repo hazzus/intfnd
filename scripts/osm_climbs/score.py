@@ -15,7 +15,7 @@ log = logging.getLogger(__name__)
 # ── score tuning constants ───────────────────────────────────────────────
 # Saturation thresholds: subscore reaches 1.0 (worst) when its raw measurement
 # hits the threshold. Lower threshold → faster saturation → harsher penalty.
-SCORE_INTER_NORM = 1.5    # intersections per km
+SCORE_INTER_NORM = 5    # intersections per km
 SCORE_TURN_NORM = 0.7     # sum((angle/ref)^2) / km^TURN_LENGTH_EXP
 SCORE_SPIKE_NORM = 6.0    # max grade deviation / avg grade (unitless ratio)
 
@@ -42,10 +42,10 @@ SCORE_WEIGHT_SPIKE = 0.1
 HIGHWAY_MAGNITUDE: dict[str, float] = {
     "motorway": 10, "motorway_link": 10,
     "trunk": 8, "trunk_link": 8,
-    "primary": 6, "primary_link": 6,
-    "secondary": 4, "secondary_link": 4,
-    "tertiary": 3, "tertiary_link": 3,
-    "unclassified": 2,
+    "primary": 6, 
+    "primary_link": 4, "secondary": 4, 
+    "secondary_link": 3, "tertiary": 3, 
+    "tertiary_link": 2, "unclassified": 2,
     "residential": 2,
     "living_street": 1.5,
     "service": 1,
