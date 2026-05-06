@@ -40,13 +40,13 @@ pub struct SearchResult {
 }
 
 pub fn calc_score(result: &SearchResult, request: &SearchRequest) -> f64 {
-    const DISTANCE_WEIGHT: f64 = 0.5;
+    const DISTANCE_WEIGHT: f64 = 0.;
     const SCORE_WEIGHT: f64 = 0.3;
 
     let time_score = (result.delta_s / request.interval_s).powi(2);
     let distance_score: f64 = 0.; // TODO calculate distance haversine, geo crate + map into [0, 1] by radius
 
-    time_score + DISTANCE_WEIGHT * distance_score - SCORE_WEIGHT * result.score
+    (1. - DISTANCE_WEIGHT - SCORE_WEIGHT) * time_score + DISTANCE_WEIGHT * distance_score + SCORE_WEIGHT * (1. - result.score)
 }
 
 pub async fn search(
@@ -87,8 +87,8 @@ pub async fn search(
                 req.power_w,
             )?;
             let margin_bottom = req.interval_s * 0.05;
-            // let margin_top = req.interval_s * 0.4;
-            if t < req.interval_s - margin_bottom {
+            let margin_top = req.interval_s * 0.4;
+            if t < req.interval_s - margin_bottom || t > req.interval_s + margin_top {
                 return None;
             }
             Some(SearchResult {
