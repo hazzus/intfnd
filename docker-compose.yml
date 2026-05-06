@@ -6,7 +6,7 @@ services:
     environment:
       POSTGRES_DB: intfnd
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: pw
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -22,7 +22,7 @@ services:
     env_file: .env
     environment:
       # overrides DATABASE_URL from .env to use the internal Docker hostname
-      DATABASE_URL: postgres://postgres:pw@db:5432/intfnd
+      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD}@db:5432/intfnd
     depends_on:
       db:
         condition: service_healthy
