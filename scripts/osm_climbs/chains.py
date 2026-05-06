@@ -233,13 +233,28 @@ def compute_node_ways(ways: list[Way]) -> dict[tuple[float, float], set[int]]:
 
 
 def compute_node_degree(ways: list[Way]) -> dict[tuple[float, float], int]:
-    """Number of distinct cyclable ways touching each node coord.
+    """Topological port count at each node: number of incident way-edges.
 
-    Degree >= 3 is treated as a real intersection by the scorer; degree 2 is just a
-    chain continuation. OSM normally splits ways at junctions, so junction nodes
-    surface here as the endpoints shared between multiple ways.
+    Each consecutive coord pair in a way contributes one port to each of its two
+    endpoints. A plain mid-node of a single way is degree 2; an end-to-end stitch
+    between two ways is degree 2; a T-junction (one way ends at the interior of
+    another) is degree 3; an X-crossing (two ways both pass through) is degree 4.
+
+    Counting distinct ways instead would miss T/X cases where OSM hasn't split the
+    through-way at the junction node — both look like "two ways touch here".
+    Degree >= 3 is treated as a real intersection by the scorer; degree 2 is a
+    chain continuation.
     """
-    return {k: len(v) for k, v in compute_node_ways(ways).items()}
+    deg: dict[tuple[float, float], int] = defaultdict(int)
+    for w in ways:
+        coords = w.coords
+        for i in range(len(coords) - 1):
+            a, b = coords[i], coords[i + 1]
+            if a == b:
+                continue
+            deg[a] += 1
+            deg[b] += 1
+    return dict(deg)
 
 
 def chain_display_name(chain: Chain) -> str:

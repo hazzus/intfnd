@@ -19,7 +19,7 @@ import sys
 import rasterio
 
 from osm_climbs import score
-from osm_climbs.chains import build_chains, compute_node_ways
+from osm_climbs.chains import build_chains, compute_node_degree, compute_node_ways
 from osm_climbs.debug import run_debug
 from osm_climbs.osm_load import load_ways
 from osm_climbs.pipeline import run_pipeline
@@ -94,7 +94,7 @@ def main() -> int:
 
     log.info("computing node→ways map")
     node_ways_map = compute_node_ways(ways)
-    node_degree = {k: len(v) for k, v in node_ways_map.items()}
+    node_degree = compute_node_degree(ways)
     way_highways = {w.id: w.highway for w in ways}
     score.configure_intersection_lookups(node_ways_map, way_highways)
 
