@@ -5,6 +5,7 @@ Find the best climb for yout interval
 Hosted at: [intfnd.duckdns.org](https://intfnd.duckdns.org)
 
 ### TODO
+* traffic lights to score
 * Perf predictor on climb page
 * Explore page: see all climbs, filter them
 * Even better scoring

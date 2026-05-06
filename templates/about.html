@@ -309,10 +309,10 @@
         that are real junctions (degree ≥ 3 in the cyclable network), per km, with each
         junction weighted by the size of the road crossing relative to the climb itself. A
         primary road crossing a residential climb counts heavily; a footpath branching off a
-        primary climb barely registers. Saturates at 1.5 weighted intersections per km:
+        primary climb barely registers. Saturates at 5 weighted intersections per km:
       </p>
       <div class="formula">
-        $$ p_\text{inter} \;=\; \min\!\left(1,\; \tfrac{1}{1.5} \cdot \tfrac{1}{L_\text{km}} \sum_{i \in \text{inter}} w_i \right) $$
+        $$ p_\text{inter} \;=\; \min\!\left(1,\; \tfrac{1}{5} \cdot \tfrac{1}{L_\text{km}} \sum_{i \in \text{inter}} w_i \right) $$
       </div>
       <p class="caption">
         \(w_i = \max\!\left(\tfrac{M_\text{cross}}{M_\text{climb}},\; 0.1\right)\), where
@@ -323,12 +323,12 @@
       </p>
 
       <table class="constants">
-        <tr><th>motorway, trunk_link…</th><td class="val">10</td><td class="note">motorway / motorway_link</td></tr>
-        <tr><th>trunk</th><td class="val">8</td><td class="note">trunk / trunk_link</td></tr>
-        <tr><th>primary</th><td class="val">6</td><td class="note">primary / primary_link</td></tr>
-        <tr><th>secondary</th><td class="val">4</td><td class="note">secondary / secondary_link</td></tr>
-        <tr><th>tertiary</th><td class="val">3</td><td class="note">tertiary / tertiary_link</td></tr>
-        <tr><th>unclassified, residential</th><td class="val">2</td><td class="note">smaller through roads</td></tr>
+        <tr><th>motorway, motorway_link</th><td class="val">10</td><td class="note"></td></tr>
+        <tr><th>trunk, trunk_link</th><td class="val">8</td><td class="note"></td></tr>
+        <tr><th>primary</th><td class="val">6</td><td class="note"></td></tr>
+        <tr><th>primary_link, secondary</th><td class="val">4</td><td class="note"></td></tr>
+        <tr><th>secondary_link, tertiary</th><td class="val">3</td><td class="note"></td></tr>
+        <tr><th>tertiary_link, unclassified, residential</th><td class="val">2</td><td class="note">smaller through roads</td></tr>
         <tr><th>living_street</th><td class="val">1.5</td><td class="note"></td></tr>
         <tr><th>service, track</th><td class="val">1</td><td class="note">driveways, farm tracks</td></tr>
         <tr><th>cycleway</th><td class="val">0.5</td><td class="note"></td></tr>
@@ -341,10 +341,10 @@
         super-linear penalty so a single sharp turn outweighs many gentle ones. The summed
         severity is normalised by \(\sqrt{L_\text{km}}\) (sub-linear length normalisation, so
         a long climb with many gentle bends isn't over-penalised but a single hairpin on a
-        long climb isn't washed out either). Saturates at 0.7:
+        long climb isn't washed out either). Saturates at 1.5:
       </p>
       <div class="formula">
-        $$ p_\text{turn} \;=\; \min\!\left(1,\; \tfrac{1}{0.7} \cdot \tfrac{1}{\sqrt{L_\text{km}}} \sum_{i \in \text{inter}} \!\left(\tfrac{|\Delta\theta_i|}{90°}\right)^{\!2} \right) $$
+        $$ p_\text{turn} \;=\; \min\!\left(1,\; \tfrac{1}{1.5} \cdot \tfrac{1}{\sqrt{L_\text{km}}} \sum_{i \in \text{inter}} \!\left(\tfrac{|\Delta\theta_i|}{90°}\right)^{\!2} \right) $$
       </div>
       <p class="caption">
         At the reference angle of 90° a single turn contributes severity 1.0; four 30°

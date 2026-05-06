@@ -16,7 +16,7 @@ log = logging.getLogger(__name__)
 # Saturation thresholds: subscore reaches 1.0 (worst) when its raw measurement
 # hits the threshold. Lower threshold → faster saturation → harsher penalty.
 SCORE_INTER_NORM = 5    # intersections per km
-SCORE_TURN_NORM = 0.7     # sum((angle/ref)^2) / km^TURN_LENGTH_EXP
+SCORE_TURN_NORM = 1.5     # sum((angle/ref)^2) / km^TURN_LENGTH_EXP
 SCORE_SPIKE_NORM = 6.0    # max grade deviation / avg grade (unitless ratio)
 
 # Per-turn severity = (angle / TURN_REF_DEG)^2: super-linear so a single 90° turn
