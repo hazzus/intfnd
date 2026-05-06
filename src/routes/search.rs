@@ -10,6 +10,8 @@ use uuid::Uuid;
 
 use crate::{models::Climb, physics, AppState};
 
+const MAX_SIZE: usize = 20;
+
 #[derive(Deserialize)]
 pub struct SearchRequest {
     pub lat: f64,
@@ -116,5 +118,6 @@ pub async fn search(
     });
 
     info!(count = results.len(), "search results");
+    results.truncate(MAX_SIZE);
     Json(results).into_response()
 }
