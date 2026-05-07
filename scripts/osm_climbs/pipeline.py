@@ -180,7 +180,9 @@ def _detect_all_parallel(
     want_geojson = geojson_features is not None
     n_chains = len(chains)
 
-    chunk_size = max(1, (n_chains + n_workers - 1) // n_workers)
+    # Small tasks so workers return results frequently instead of accumulating
+    # a large batch in memory. The executor's work queue keeps all workers busy.
+    chunk_size = max(1, min(500, (n_chains + n_workers - 1) // n_workers))
     mp_ctx = multiprocessing.get_context("fork")
     progress_queue = mp_ctx.Queue()
     jobs = [
