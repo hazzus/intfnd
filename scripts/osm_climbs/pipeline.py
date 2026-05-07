@@ -5,6 +5,8 @@ and returns the process exit code. Stage boundaries match the ones documented in
 the package docstring.
 """
 import logging
+import multiprocessing
+import threading
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
 import numpy as np
@@ -38,6 +40,7 @@ log = logging.getLogger(__name__)
 # ── worker process state (set once per worker by _worker_init) ────────────────
 _w_dem = None
 _w_node_degree: dict | None = None
+_w_progress_queue: multiprocessing.Queue | None = None
 
 
 def _worker_init(
@@ -46,10 +49,12 @@ def _worker_init(
     way_highways: dict,
     signal_coords: set,
     node_degree: dict,
+    progress_queue: multiprocessing.Queue,
 ) -> None:
-    global _w_dem, _w_node_degree
+    global _w_dem, _w_node_degree, _w_progress_queue
     _w_dem = rasterio.open(dem_path)
     _w_node_degree = node_degree
+    _w_progress_queue = progress_queue
     _score_mod.configure_intersection_lookups(node_ways_map, way_highways, signal_coords)
 
 
@@ -61,6 +66,7 @@ def _detect_chain_batch(job: tuple) -> tuple[list, dict, list | None]:
     geojson_features: list[dict] | None = [] if want_geojson else None
     for chain in chains:
         _process_one_chain(chain, _w_dem, _w_node_degree, args, detected, highway_counts, geojson_features)
+        _w_progress_queue.put(1)
     return detected, highway_counts, geojson_features
 
 
@@ -170,27 +176,43 @@ def _detect_all_parallel(
 ) -> tuple[list[DetectedClimb], dict[str, int]]:
     node_ways_map, way_highways, signal_coords = _score_mod.get_intersection_lookups()
     want_geojson = geojson_features is not None
+    n_chains = len(chains)
 
-    chunk_size = max(1, (len(chains) + n_workers - 1) // n_workers)
-    chunks = [chains[i : i + chunk_size] for i in range(0, len(chains), chunk_size)]
+    chunk_size = max(1, (n_chains + n_workers - 1) // n_workers)
+    chunks = [chains[i : i + chunk_size] for i in range(0, n_chains, chunk_size)]
+
+    progress_queue: multiprocessing.Queue = multiprocessing.Queue()
     jobs = [(chunk, args, want_geojson) for chunk in chunks]
 
     detected: list[DetectedClimb] = []
     highway_counts: dict[str, int] = {}
 
-    with ProcessPoolExecutor(
-        max_workers=n_workers,
-        initializer=_worker_init,
-        initargs=(dem_path, node_ways_map, way_highways, signal_coords, node_degree),
-    ) as executor:
-        futures = [executor.submit(_detect_chain_batch, job) for job in jobs]
-        for future in tqdm(as_completed(futures), total=len(futures), unit="batch"):
-            batch_detected, batch_hc, batch_gjson = future.result()
-            detected.extend(batch_detected)
-            for hw, n in batch_hc.items():
-                highway_counts[hw] = highway_counts.get(hw, 0) + n
-            if geojson_features is not None and batch_gjson:
-                geojson_features.extend(batch_gjson)
+    with tqdm(total=n_chains, unit="chain") as bar:
+        def _drain() -> None:
+            seen = 0
+            while seen < n_chains:
+                progress_queue.get()
+                bar.update(1)
+                seen += 1
+
+        drain = threading.Thread(target=_drain, daemon=True)
+        drain.start()
+
+        with ProcessPoolExecutor(
+            max_workers=n_workers,
+            initializer=_worker_init,
+            initargs=(dem_path, node_ways_map, way_highways, signal_coords, node_degree, progress_queue),
+        ) as executor:
+            futures = [executor.submit(_detect_chain_batch, job) for job in jobs]
+            for future in as_completed(futures):
+                batch_detected, batch_hc, batch_gjson = future.result()
+                detected.extend(batch_detected)
+                for hw, n in batch_hc.items():
+                    highway_counts[hw] = highway_counts.get(hw, 0) + n
+                if geojson_features is not None and batch_gjson:
+                    geojson_features.extend(batch_gjson)
+
+        drain.join()
 
     return detected, highway_counts
 
