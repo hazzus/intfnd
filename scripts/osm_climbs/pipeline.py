@@ -39,34 +39,30 @@ from .strip import strip_climbs
 
 log = logging.getLogger(__name__)
 
-# ── worker process state (set once per worker by _worker_init) ────────────────
+# ── worker process state ──────────────────────────────────────────────────────
+# Set as module globals before forking so workers inherit them via COW — no
+# pickling of large dicts/lists through the pipe.
 _w_dem = None
+_w_chains: list | None = None
 _w_node_degree: dict | None = None
 _w_progress_queue: multiprocessing.Queue | None = None
 
 
-def _worker_init(
-    dem_path: str,
-    node_ways_map: dict,
-    way_highways: dict,
-    signal_coords: set,
-    node_degree: dict,
-    progress_queue: multiprocessing.Queue,
-) -> None:
-    global _w_dem, _w_node_degree, _w_progress_queue
+def _worker_init(dem_path: str, progress_queue: multiprocessing.Queue) -> None:
+    # _w_chains, _w_node_degree, and score globals are inherited from the
+    # parent process via fork — only the DEM handle needs to be opened fresh.
+    global _w_dem, _w_progress_queue
     _w_dem = rasterio.open(dem_path)
-    _w_node_degree = node_degree
     _w_progress_queue = progress_queue
-    _score_mod.configure_intersection_lookups(node_ways_map, way_highways, signal_coords)
 
 
 def _detect_chain_batch(job: tuple) -> tuple[list, dict, list | None]:
-    """Worker entry point: process a batch of chains using process-local state."""
-    chains, args, want_geojson = job
+    """Worker entry point: process a slice of _w_chains using process-local state."""
+    start, end, args, want_geojson = job
     detected: list[DetectedClimb] = []
     highway_counts: dict[str, int] = {}
     geojson_features: list[dict] | None = [] if want_geojson else None
-    for chain in chains:
+    for chain in _w_chains[start:end]:
         _process_one_chain(chain, _w_dem, _w_node_degree, args, detected, highway_counts, geojson_features)
         _w_progress_queue.put(1)
     return detected, highway_counts, geojson_features
@@ -176,15 +172,21 @@ def _detect_all_parallel(
     n_workers: int,
     geojson_features: list[dict] | None,
 ) -> tuple[list[DetectedClimb], dict[str, int]]:
-    node_ways_map, way_highways, signal_coords = _score_mod.get_intersection_lookups()
+    global _w_chains, _w_node_degree
+    _w_chains = chains
+    _w_node_degree = node_degree
+    # score globals already set by configure_intersection_lookups in main()
+
     want_geojson = geojson_features is not None
     n_chains = len(chains)
 
     chunk_size = max(1, (n_chains + n_workers - 1) // n_workers)
-    chunks = [chains[i : i + chunk_size] for i in range(0, n_chains, chunk_size)]
-
-    progress_queue: multiprocessing.Queue = multiprocessing.Queue()
-    jobs = [(chunk, args, want_geojson) for chunk in chunks]
+    mp_ctx = multiprocessing.get_context("fork")
+    progress_queue = mp_ctx.Queue()
+    jobs = [
+        (i, min(i + chunk_size, n_chains), args, want_geojson)
+        for i in range(0, n_chains, chunk_size)
+    ]
 
     detected: list[DetectedClimb] = []
     highway_counts: dict[str, int] = {}
@@ -202,8 +204,9 @@ def _detect_all_parallel(
 
         with ProcessPoolExecutor(
             max_workers=n_workers,
+            mp_context=mp_ctx,
             initializer=_worker_init,
-            initargs=(dem_path, node_ways_map, way_highways, signal_coords, node_degree, progress_queue),
+            initargs=(dem_path, progress_queue),
         ) as executor:
             futures = [executor.submit(_detect_chain_batch, job) for job in jobs]
             for future in as_completed(futures):
