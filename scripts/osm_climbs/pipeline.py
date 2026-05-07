@@ -4,6 +4,8 @@ Each helper here is one stage of the pipeline. `run_pipeline` glues them togethe
 and returns the process exit code. Stage boundaries match the ones documented in
 the package docstring.
 """
+from __future__ import annotations
+
 import logging
 import multiprocessing
 import threading
