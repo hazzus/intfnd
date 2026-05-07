@@ -80,6 +80,11 @@ def configure_intersection_lookups(
     _traffic_signals = traffic_signals or set()
 
 
+def get_intersection_lookups() -> tuple:
+    """Return the lookup tables registered by configure_intersection_lookups."""
+    return _node_ways_map, _way_highways, _traffic_signals
+
+
 def crossing_weight(climb_highway: str, crossing_highways: set[str]) -> float:
     """Severity multiplier for a crossing relative to the climb's own road class.
 

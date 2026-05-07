@@ -14,6 +14,7 @@ each module there corresponds to one stage of the flow.
 """
 import argparse
 import logging
+import os
 import sys
 
 import rasterio
@@ -72,6 +73,10 @@ def parse_args() -> argparse.Namespace:
         metavar="PREFIX",
         help="Save elevation profile PNG when --debug-way is set. "
              "Pass a prefix like 'debug/' (saved to debug/way_<id>.png) or 'profile' (profile_<id>.png).",
+    )
+    ap.add_argument(
+        "--workers", type=int, default=os.cpu_count() or 1,
+        help="Worker processes for chain detection (default: CPU count)",
     )
     ap.add_argument("--log-level", default="INFO")
     return ap.parse_args()
