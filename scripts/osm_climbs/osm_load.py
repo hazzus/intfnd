@@ -29,6 +29,11 @@ class WayCollector(osmium.SimpleHandler):
     def __init__(self):
         super().__init__()
         self.ways: list[Way] = []
+        self.signal_coords: set[tuple[float, float]] = set()
+
+    def node(self, n):
+        if n.tags.get("highway") == "traffic_signals" and n.location.valid():
+            self.signal_coords.add((n.location.lon, n.location.lat))
 
     def way(self, w):
         tags = w.tags
@@ -61,8 +66,8 @@ class WayCollector(osmium.SimpleHandler):
         )
 
 
-def load_ways(pbf_path: str) -> list[Way]:
+def load_ways(pbf_path: str) -> tuple[list[Way], set[tuple[float, float]]]:
     handler = WayCollector()
     # locations=True caches node coords so they're attached to ways
     handler.apply_file(pbf_path, locations=True)
-    return handler.ways
+    return handler.ways, handler.signal_coords

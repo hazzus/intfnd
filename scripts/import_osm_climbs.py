@@ -86,17 +86,17 @@ def main() -> int:
     )
 
     log.info("loading ways from %s", args.pbf)
-    ways = load_ways(args.pbf)
+    ways, signal_coords = load_ways(args.pbf)
     if not ways:
         log.error("no cycling network found in %s", args.pbf)
         return 1
-    log.info("loaded %d ways", len(ways))
+    log.info("loaded %d ways, %d traffic-signal nodes", len(ways), len(signal_coords))
 
     log.info("computing node→ways map")
     node_ways_map = compute_node_ways(ways)
     node_degree = compute_node_degree(ways)
     way_highways = {w.id: w.highway for w in ways}
-    score.configure_intersection_lookups(node_ways_map, way_highways)
+    score.configure_intersection_lookups(node_ways_map, way_highways, signal_coords)
 
     log.info("stitching chains")
     chains = build_chains(ways)

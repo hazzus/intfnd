@@ -18,6 +18,7 @@ log = logging.getLogger(__name__)
 SCORE_INTER_NORM = 5    # intersections per km
 SCORE_TURN_NORM = 1.5     # sum((angle/ref)^2) / km^TURN_LENGTH_EXP
 SCORE_SPIKE_NORM = 6.0    # max grade deviation / avg grade (unitless ratio)
+SCORE_SIGNAL_NORM = 0.5   # signals per km that saturates score at 1.0 (1 light/2km = max penalty)
 
 # Per-turn severity = (angle / TURN_REF_DEG)^2: super-linear so a single 90° turn
 # (severity 1.0) outweighs four 30° turns (4 × 0.111 = 0.44). Severity is summed
@@ -29,9 +30,10 @@ SCORE_TURN_LENGTH_EXP = 0.5
 
 # Weights mixing the three saturated subscores into the final score.
 # Should sum to 1.0 if you want the final score to stay in [0, 1].
-SCORE_WEIGHT_INTER = 0.5
-SCORE_WEIGHT_TURN = 0.4
-SCORE_WEIGHT_SPIKE = 0.1
+SCORE_WEIGHT_INTER = 0.30
+SCORE_WEIGHT_TURN = 0.20
+SCORE_WEIGHT_SPIKE = 0.10
+SCORE_WEIGHT_SIGNALS = 0.40
 
 # ── intersection weighting ───────────────────────────────────────────────
 # Each OSM highway class gets a magnitude. At an intersection, the crossing
@@ -63,16 +65,19 @@ MIN_CROSSING_WEIGHT = 0.1
 # (preserves pre-feature behavior).
 _node_ways_map: dict[tuple[float, float], set[int]] | None = None
 _way_highways: dict[int, str] | None = None
+_traffic_signals: set[tuple[float, float]] | None = None
 
 
 def configure_intersection_lookups(
     node_ways_map: dict[tuple[float, float], set[int]],
     way_highways: dict[int, str],
+    traffic_signals: set[tuple[float, float]] | None = None,
 ) -> None:
-    """Register the global node→ways and way→highway maps used for crossing weights."""
-    global _node_ways_map, _way_highways
+    """Register the global node→ways, way→highway, and traffic-signal maps."""
+    global _node_ways_map, _way_highways, _traffic_signals
     _node_ways_map = node_ways_map
     _way_highways = way_highways
+    _traffic_signals = traffic_signals or set()
 
 
 def crossing_weight(climb_highway: str, crossing_highways: set[str]) -> float:
@@ -122,6 +127,7 @@ def score_breakdown(
             "turn_degrees": [], "turn_nodes": [], "turn_weights": [],
             "avg_grade": 0.0, "max_spike_dev": 0.0,
             "spike_ratio": 0.0, "spike_score": 0.0,
+            "signal_count": 0, "signals_per_km": 0.0, "signal_score": 0.0,
             "score": 1.0,
         }
 
@@ -165,6 +171,8 @@ def score_breakdown(
         turn_nodes.append(nodes[i])
         turn_weights.append(w)
 
+    signal_count = sum(1 for n in nodes if n in _traffic_signals) if _traffic_signals else 0
+
     length_km = max(length_m / 1000.0, 0.1)
     inter_density = intersections_weighted / length_km
     inter_score = min(1.0, inter_density / SCORE_INTER_NORM)
@@ -186,10 +194,14 @@ def score_breakdown(
     spike_ratio = (max_spike_dev / avg_grade) if avg_grade > 0 else 0.0
     spike_score = min(1.0, spike_ratio / SCORE_SPIKE_NORM)
 
+    signals_per_km = signal_count / length_km
+    signal_score = min(1.0, signals_per_km / SCORE_SIGNAL_NORM)
+
     score = float(
         SCORE_WEIGHT_INTER * inter_score
         + SCORE_WEIGHT_TURN * turn_score
         + SCORE_WEIGHT_SPIKE * spike_score
+        + SCORE_WEIGHT_SIGNALS * signal_score
     )
     return {
         "intersections": intersections,
@@ -203,7 +215,10 @@ def score_breakdown(
         "turn_weights": turn_weights,
         "avg_grade": avg_grade,
         "max_spike_dev": max_spike_dev, "spike_ratio": spike_ratio,
-        "spike_score": spike_score, "score": score,
+        "spike_score": spike_score,
+        "signal_count": signal_count, "signals_per_km": signals_per_km,
+        "signal_score": signal_score,
+        "score": score,
     }
 
 
@@ -248,11 +263,13 @@ def log_score_stats(detected) -> None:
         ("intersections / km", "inter_density",  "%6.2f", SCORE_INTER_NORM),
         ("turn severity / √km", "turn_severity", "%6.2f", SCORE_TURN_NORM),
         ("spike ratio       ", "spike_ratio",    "%6.2f", SCORE_SPIKE_NORM),
+        ("signals / km      ", "signals_per_km", "%6.2f", SCORE_SIGNAL_NORM),
     ]
     sat_keys = [
-        ("inter_score", "inter_score", SCORE_WEIGHT_INTER),
-        ("turn_score ", "turn_score",  SCORE_WEIGHT_TURN),
-        ("spike_score", "spike_score", SCORE_WEIGHT_SPIKE),
+        ("inter_score ", "inter_score",  SCORE_WEIGHT_INTER),
+        ("turn_score  ", "turn_score",   SCORE_WEIGHT_TURN),
+        ("spike_score ", "spike_score",  SCORE_WEIGHT_SPIKE),
+        ("signal_score", "signal_score", SCORE_WEIGHT_SIGNALS),
     ]
 
     log.info("score components — unnormalised (p90 is a good saturation-point candidate):")
@@ -344,4 +361,11 @@ def print_score_breakdown_lines(
         f"vs avg {sb['avg_grade']*100:.2f}% → ratio {sb['spike_ratio']:.2f}× "
         f"(capped at {SCORE_SPIKE_NORM:g}×) → "
         f"spike_score={sb['spike_score']:.3f} × {SCORE_WEIGHT_SPIKE:g} = {spike_w:.3f}"
+    )
+    signal_w = SCORE_WEIGHT_SIGNALS * sb.get("signal_score", 0.0)
+    print(
+        f"{indent}signals       : {sb.get('signal_count', 0):>3} "
+        f"on {sb['length_km']:.2f} km "
+        f"({sb.get('signals_per_km', 0.0):.2f}/km, capped at {SCORE_SIGNAL_NORM:g}/km) → "
+        f"signal_score={sb.get('signal_score', 0.0):.3f} × {SCORE_WEIGHT_SIGNALS:g} = {signal_w:.3f}"
     )

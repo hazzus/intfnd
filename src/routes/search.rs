@@ -89,7 +89,7 @@ pub async fn search(
                 req.power_w,
             )?;
             let margin_bottom = req.interval_s * 0.05;
-            let margin_top = req.interval_s * 0.4;
+            let margin_top = req.interval_s;
             if t < req.interval_s - margin_bottom || t > req.interval_s + margin_top {
                 return None;
             }
