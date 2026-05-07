@@ -293,7 +293,7 @@
       </p>
 
       <div class="formula">
-        $$ \text{score} \;=\; 100 \cdot \bigl(1 \;-\; 0.5 \cdot p_\text{inter} \;-\; 0.4 \cdot p_\text{turn} \;-\; 0.1 \cdot p_\text{spike}\bigr) $$
+        $$ \text{score} \;=\; 100 \cdot \bigl(1 \;-\; 0.3 \cdot p_\text{inter} \;-\; 0.2 \cdot p_\text{turn} \;-\; 0.1 \cdot p_\text{spike} \;-\; 0.4 \cdot p_\text{signal}\bigr) $$
       </div>
       <p class="caption">
         Each penalty term \(p_\text{x} \in [0, 1]\); a clean climb has them all near 0
@@ -361,13 +361,26 @@
         $$ p_\text{spike} \;=\; \min\!\left(1,\; \tfrac{1}{6} \cdot \tfrac{\max_i |\text{grade}_i - \overline{\text{grade}}|}{\overline{\text{grade}}}\right) $$
       </div>
       <p>
-        The spike term carries the smallest weight (0.1) on purpose. Per-sample grade is
+        The spike term carries a small weight (0.1). Per-sample grade is
         derived from SRTM elevation samples ~10 m apart, and SRTM's vertical noise is roughly
         the same magnitude as the height differences between adjacent samples on a real road —
         so a single noisy sample can look like a 20 % ramp that isn't there. Treat
-        \(p_\text{spike}\) as a weak hint, not a measurement. Intersection density and turn
-        severity come straight from OSM topology and are far more reliable, which is why
-        they dominate the mix.
+        \(p_\text{spike}\) as a weak hint, not a measurement.
+      </p>
+
+      <p>
+        <strong>Traffic signal density</strong> — count of OSM <code>traffic_signal</code>
+        nodes on the climb, per km. A climb interrupted by frequent traffic lights disrupts
+        a sustained effort even if the road is otherwise clean. Saturates at 0.5 signals per
+        km (one light every 2 km):
+      </p>
+      <div class="formula">
+        $$ p_\text{signal} \;=\; \min\!\left(1,\; \frac{\text{signals per km}}{0.5}\right) $$
+      </div>
+      <p class="caption">
+        Traffic signals carry the highest weight (0.4) because a red light on a timed effort
+        is a hard stop — unlike an intersection you can roll through or a gradient spike that
+        only slows you down.
       </p>
     </section>
 
