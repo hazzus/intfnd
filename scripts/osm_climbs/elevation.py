@@ -1,10 +1,16 @@
 """DEM sampling and elevation-profile smoothing."""
 import numpy as np
+from pyproj import Transformer
 from scipy.ndimage import uniform_filter1d
 
 
 def sample_elevation(dataset, lats: np.ndarray, lngs: np.ndarray) -> np.ndarray:
-    pts = list(zip(lngs.tolist(), lats.tolist()))
+    if dataset.crs and dataset.crs.to_epsg() != 4326:
+        transformer = Transformer.from_crs("EPSG:4326", dataset.crs, always_xy=True)
+        xs, ys = transformer.transform(lngs.tolist(), lats.tolist())
+        pts = list(zip(xs, ys))
+    else:
+        pts = list(zip(lngs.tolist(), lats.tolist()))
     samples = list(dataset.sample(pts))
     elev = np.array([s[0] for s in samples], dtype=float)
     nodata = dataset.nodata

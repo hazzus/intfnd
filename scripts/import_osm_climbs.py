@@ -110,7 +110,7 @@ def main() -> int:
     log.info("opening DEM %s", args.dem)
     dem = rasterio.open(args.dem)
     if dem.crs and dem.crs.to_epsg() != 4326:
-        log.warning("DEM CRS is %s, expected EPSG:4326 — sampling may be incorrect", dem.crs)
+        log.info("DEM CRS is %s (not EPSG:4326) — coordinates will be reprojected before sampling", dem.crs)
 
     try:
         if args.debug_way:
