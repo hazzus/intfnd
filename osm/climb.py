@@ -306,7 +306,11 @@ def _insert_batch(conn: psycopg2.extensions.connection, rows: list[dict]) -> Non
             """
             INSERT INTO proto_climbs (nodes, osm_way_ids, start_lat, start_lng, distance)
             VALUES %s
-            ON CONFLICT (nodes) DO NOTHING
+            ON CONFLICT (md5(nodes::text)) DO UPDATE SET
+                osm_way_ids = EXCLUDED.osm_way_ids,
+                start_lat   = EXCLUDED.start_lat,
+                start_lng   = EXCLUDED.start_lng,
+                distance    = EXCLUDED.distance
             """,
             [
                 (r["nodes"], r["osm_way_ids"], r["start_lat"], r["start_lng"], r["distance"])
