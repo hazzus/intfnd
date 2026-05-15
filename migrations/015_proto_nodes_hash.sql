@@ -1,3 +1,5 @@
+TRUNCATE proto_climbs;
+
 ALTER TABLE proto_climbs DROP CONSTRAINT IF EXISTS proto_climbs_nodes_key;
 
 ALTER TABLE proto_climbs ADD COLUMN nodes_hash TEXT NOT NULL DEFAULT '';
