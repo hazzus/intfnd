@@ -1,3 +1,4 @@
+import hashlib
 import logging
 import math
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -78,6 +79,10 @@ def _find_extrema(elev: np.ndarray, prominence: float) -> list[tuple[int, str]]:
     if extrema[-1][0] != n - 1:
         extrema.append((n - 1, end_kind))
     return extrema
+
+
+def _nodes_hash(nids: list[int]) -> str:
+    return hashlib.md5(",".join(str(n) for n in sorted(nids)).encode()).hexdigest()
 
 
 def _unique_in_order(items):
@@ -289,6 +294,7 @@ def _detect_chain_climbs(
             )
             rows.append({
                 "nodes": nids,
+                "nodes_hash": _nodes_hash(nids),
                 "osm_way_ids": _unique_in_order(wids),
                 "start_lat": start_lat,
                 "start_lng": start_lng,
@@ -304,16 +310,17 @@ def _insert_batch(conn: psycopg2.extensions.connection, rows: list[dict]) -> Non
         psycopg2.extras.execute_values(
             cur,
             """
-            INSERT INTO proto_climbs (nodes, osm_way_ids, start_lat, start_lng, distance)
+            INSERT INTO proto_climbs (nodes, nodes_hash, osm_way_ids, start_lat, start_lng, distance)
             VALUES %s
-            ON CONFLICT (md5(nodes::text)) DO UPDATE SET
+            ON CONFLICT (nodes_hash) DO UPDATE SET
+                nodes       = EXCLUDED.nodes,
                 osm_way_ids = EXCLUDED.osm_way_ids,
                 start_lat   = EXCLUDED.start_lat,
                 start_lng   = EXCLUDED.start_lng,
                 distance    = EXCLUDED.distance
             """,
             [
-                (r["nodes"], r["osm_way_ids"], r["start_lat"], r["start_lng"], r["distance"])
+                (r["nodes"], r["nodes_hash"], r["osm_way_ids"], r["start_lat"], r["start_lng"], r["distance"])
                 for r in rows
             ],
         )
