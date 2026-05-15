@@ -3,6 +3,8 @@ intfnd.sql
 .env
 /scripts/resources
 /scripts/.venv
+/osm/resources
+/osm/.venv
 __pycache__/
 *.pyc
 

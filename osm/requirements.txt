@@ -1,0 +1,7 @@
+osmium
+polyline
+psycopg2-binary
+pyproj
+rasterio
+scipy
+tqdm

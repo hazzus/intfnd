@@ -1,0 +1,2 @@
+ALTER TABLE proto_climbs
+    ADD COLUMN distance DOUBLE PRECISION NOT NULL;
