@@ -41,14 +41,19 @@ pub struct SearchResult {
     pub score: f64,
 }
 
-pub fn calc_score(result: &SearchResult, request: &SearchRequest) -> f64 {
+pub fn calc_score(result: &SearchResult, request: &SearchRequest, score_min: f64, score_max: f64) -> f64 {
     const DISTANCE_WEIGHT: f64 = 0.;
     const SCORE_WEIGHT: f64 = 0.3;
 
     let time_score = (result.delta_s / request.interval_s).powi(2);
     let distance_score: f64 = 0.; // TODO calculate distance haversine, geo crate + map into [0, 1] by radius
+    let normalized_score = if score_max > score_min {
+        (result.score - score_min) / (score_max - score_min)
+    } else {
+        0.
+    };
 
-    (1. - DISTANCE_WEIGHT - SCORE_WEIGHT) * time_score + DISTANCE_WEIGHT * distance_score + SCORE_WEIGHT * (1. - result.score)
+    (1. - DISTANCE_WEIGHT - SCORE_WEIGHT) * time_score + DISTANCE_WEIGHT * distance_score + SCORE_WEIGHT * normalized_score
 }
 
 pub async fn search(
@@ -111,9 +116,11 @@ pub async fn search(
         })
         .collect();
 
+    let score_min = results.iter().map(|r| r.score).fold(f64::INFINITY, f64::min);
+    let score_max = results.iter().map(|r| r.score).fold(f64::NEG_INFINITY, f64::max);
     results.sort_by(|a, b| {
-        let sa = calc_score(a, &req);
-        let sb = calc_score(b, &req);
+        let sa = calc_score(a, &req, score_min, score_max);
+        let sb = calc_score(b, &req, score_min, score_max);
         sa.partial_cmp(&sb).unwrap_or(std::cmp::Ordering::Equal)
     });
 

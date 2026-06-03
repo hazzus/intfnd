@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>intfnd · explore</title>
+  <link rel="icon" type="image/png" href="/icon.png">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: monospace;
+      background: #f0f0f0;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* ── header ── */
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 20px;
+      height: 52px;
+      background: #fff;
+      border-bottom: 1px solid #ddd;
+      flex-shrink: 0;
+    }
+    .logo { display: flex; align-items: center; gap: 8px; font-size: 1.1rem; font-weight: bold; color: #222; text-decoration: none; }
+    .logo img { width: 24px; height: 24px; }
+    nav.tabs { display: flex; gap: 4px; }
+    nav.tabs a {
+      padding: 6px 14px;
+      font-size: 0.85rem;
+      color: #555;
+      text-decoration: none;
+      border-radius: 4px;
+    }
+    nav.tabs a:hover { background: #f4f4f4; color: #222; }
+    nav.tabs a.active { background: #fc4c02; color: #fff; }
+
+    /* ── filter bar ── */
+    #filter-bar {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 0 16px;
+      height: 44px;
+      background: #fff;
+      border-bottom: 1px solid #ddd;
+      flex-shrink: 0;
+      font-size: 0.8rem;
+      color: #555;
+    }
+    .filter-group { display: flex; align-items: center; gap: 6px; }
+    .filter-label { white-space: nowrap; color: #888; font-size: 0.78rem; }
+    .filter-sep { color: #ccc; }
+    .filter-group input[type=number] {
+      width: 64px;
+      padding: 4px 6px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 0.8rem;
+      background: #fafafa;
+    }
+    .filter-group input[type=number]:focus { outline: none; border-color: #fc4c02; background: #fff; }
+
+    /* dual-range grade slider */
+    .dual-range {
+      position: relative;
+      width: 160px;
+      height: 20px;
+      display: flex;
+      align-items: center;
+      flex-shrink: 0;
+    }
+    .dr-track {
+      position: absolute;
+      left: 0; right: 0;
+      height: 4px;
+      background: #e0e0e0;
+      border-radius: 2px;
+    }
+    .dr-fill {
+      position: absolute;
+      height: 4px;
+      background: #fc4c02;
+      border-radius: 2px;
+      pointer-events: none;
+    }
+    .dual-range input[type=range] {
+      position: absolute;
+      width: 100%;
+      margin: 0;
+      background: none;
+      pointer-events: none;
+      -webkit-appearance: none;
+      appearance: none;
+      height: 4px;
+    }
+    .dual-range input[type=range]::-webkit-slider-runnable-track { background: transparent; }
+    .dual-range input[type=range]::-moz-range-track { background: transparent; height: 4px; }
+    .dual-range input[type=range]::-webkit-slider-thumb {
+      pointer-events: all;
+      -webkit-appearance: none;
+      width: 14px; height: 14px;
+      border-radius: 50%;
+      background: #fc4c02;
+      cursor: pointer;
+      border: 2px solid #fff;
+      box-shadow: 0 0 0 1.5px #fc4c02;
+    }
+    .dual-range input[type=range]::-moz-range-thumb {
+      pointer-events: all;
+      appearance: none;
+      width: 14px; height: 14px;
+      border-radius: 50%;
+      background: #fc4c02;
+      cursor: pointer;
+      border: 2px solid #fff;
+      box-shadow: 0 0 0 1.5px #fc4c02;
+    }
+    .filter-val {
+      font-size: 0.75rem;
+      color: #444;
+      white-space: nowrap;
+      min-width: 72px;
+    }
+
+    .filter-divider { width: 1px; height: 20px; background: #eee; flex-shrink: 0; }
+    .toggle {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 0.8rem;
+      color: #555;
+      cursor: pointer;
+      user-select: none;
+      white-space: nowrap;
+    }
+    .toggle input { accent-color: #fc4c02; cursor: pointer; }
+    #status {
+      margin-left: auto;
+      font-size: 0.75rem;
+      color: #999;
+      white-space: nowrap;
+    }
+    #status.loading { color: #fc4c02; }
+    #status.error { color: #c0392b; }
+
+    /* ── map ── */
+    #map { flex: 1; }
+
+    /* ── climb tooltip ── */
+    .climb-tip {
+      font-family: monospace;
+      font-size: 0.78rem;
+      line-height: 1.5;
+      padding: 6px 10px;
+      background: #fff;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.12);
+      color: #222;
+      pointer-events: none;
+    }
+    .climb-tip::before { display: none; }
+    .climb-tip b { color: #fc4c02; font-size: 0.85rem; }
+    .climb-tip .tip-tags { display: flex; gap: 4px; margin-top: 4px; }
+    .climb-tip .tag {
+      font-size: 0.68rem;
+      padding: 1px 5px;
+      border-radius: 3px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .climb-tip .tag-paved { background: #eef; color: #335; }
+    .climb-tip .tag-unpaved { background: #f5ecdf; color: #7a4a1c; }
+    .climb-tip .tag-bidi { background: #e7f4ea; color: #2d6a3a; }
+    .climb-tip .tag-oneway { background: #f4ece7; color: #6a3a2d; }
+  </style>
+</head>
+<body>
+
+<header>
+  <a href="/" class="logo"><img src="/icon.png" alt="">intfnd</a>
+  <nav class="tabs">
+    <a href="/">Search</a>
+    <a href="/about">About</a>
+    <a href="/explore" class="active">Explore</a>
+  </nav>
+</header>
+
+<div id="filter-bar">
+  <div class="filter-group">
+    <span class="filter-label">dist (km)</span>
+    <input id="min-dist" type="number" min="0" step="0.1" placeholder="min">
+    <span class="filter-sep">–</span>
+    <input id="max-dist" type="number" min="0" step="0.1" placeholder="max">
+  </div>
+  <div class="filter-divider"></div>
+  <div class="filter-group">
+    <span class="filter-label">grade</span>
+    <div class="dual-range">
+      <div class="dr-track"></div>
+      <div class="dr-fill" id="grade-fill"></div>
+      <input id="min-grade" type="range" min="0" max="25" step="0.5" value="0">
+      <input id="max-grade" type="range" min="0" max="25" step="0.5" value="25">
+    </div>
+    <span class="filter-val" id="grade-val"></span>
+  </div>
+  <div class="filter-divider"></div>
+  <label class="toggle"><input id="paved-only" type="checkbox"> paved</label>
+  <label class="toggle"><input id="bidirectional-only" type="checkbox"> bidi</label>
+  <span id="status"></span>
+</div>
+
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+  const map = L.map('map');
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap contributors',
+    maxZoom: 19,
+  }).addTo(map);
+
+  const statusEl = document.getElementById('status');
+  let climbLayers = [];
+  let fetchTimer = null;
+  let activeController = null;
+
+  function decodePolyline(encoded) {
+    const pts = [];
+    let idx = 0, lat = 0, lng = 0;
+    while (idx < encoded.length) {
+      let b, shift = 0, result = 0;
+      do { b = encoded.charCodeAt(idx++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
+      lat += (result & 1) ? ~(result >> 1) : (result >> 1);
+      shift = result = 0;
+      do { b = encoded.charCodeAt(idx++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
+      lng += (result & 1) ? ~(result >> 1) : (result >> 1);
+      pts.push([lat / 1e5, lng / 1e5]);
+    }
+    return pts;
+  }
+
+  function clearClimbs() {
+    climbLayers.forEach(l => l.remove());
+    climbLayers = [];
+  }
+
+  function renderClimbs(climbs) {
+    clearClimbs();
+    for (const c of climbs) {
+      if (c.polyline) {
+        const pts = decodePolyline(c.polyline);
+        const line = L.polyline(pts, {
+          color: '#fc4c02',
+          weight: 3,
+          opacity: 0.75,
+        }).addTo(map);
+        line.bindTooltip(
+          `<b>${c.name}</b><br>${(c.distance_m / 1000).toFixed(2)} km · ${c.average_grade.toFixed(1)}% · ${Math.trunc(c.score)} score`,
+          { sticky: true, className: 'climb-tip' }
+        );
+        line.on('click', () => { saveState(); window.location.href = `/climb/${c.id}?from=explore`; });
+        climbLayers.push(line);
+      }
+      const surfaceLabel = c.is_paved ? 'paved' : 'unpaved';
+      const dirLabel = c.bidirectional ? 'bidirectional' : 'one-way';
+      const dot = L.circleMarker([c.start_lat, c.start_lng], {
+        radius: 6,
+        color: '#fff',
+        fillColor: '#fc4c02',
+        fillOpacity: 1,
+        weight: 2,
+      }).addTo(map);
+      dot.bindTooltip(
+        `<b>${c.name}</b><br>` +
+        `${(c.distance_m / 1000).toFixed(2)} km &nbsp;·&nbsp; ${c.average_grade.toFixed(1)}% &nbsp;·&nbsp; ${Math.trunc(c.score)} score` +
+        `<div class="tip-tags">` +
+        `<span class="tag tag-${surfaceLabel}">${surfaceLabel}</span>` +
+        `<span class="tag tag-${c.bidirectional ? 'bidi' : 'oneway'}">${dirLabel}</span>` +
+        `</div>`,
+        { direction: 'top', offset: [0, -8], className: 'climb-tip' }
+      );
+      dot.on('click', () => { saveState(); window.location.href = `/climb/${c.id}?from=explore`; });
+      climbLayers.push(dot);
+    }
+  }
+
+  const GRADE_MAX = 25;
+
+  function updateGradeSlider() {
+    const minG = parseFloat(document.getElementById('min-grade').value);
+    const maxG = parseFloat(document.getElementById('max-grade').value);
+    const minPct = (minG / GRADE_MAX) * 100;
+    const maxPct = (maxG / GRADE_MAX) * 100;
+    const fill = document.getElementById('grade-fill');
+    fill.style.left = minPct + '%';
+    fill.style.width = (maxPct - minPct) + '%';
+    document.getElementById('grade-val').textContent = `${minG.toFixed(1)} – ${maxG.toFixed(1)}%`;
+  }
+
+  document.getElementById('min-grade').addEventListener('input', () => {
+    const el = document.getElementById('min-grade');
+    const maxEl = document.getElementById('max-grade');
+    if (parseFloat(el.value) > parseFloat(maxEl.value)) maxEl.value = el.value;
+    updateGradeSlider(); scheduleFetch();
+  });
+  document.getElementById('max-grade').addEventListener('input', () => {
+    const el = document.getElementById('max-grade');
+    const minEl = document.getElementById('min-grade');
+    if (parseFloat(el.value) < parseFloat(minEl.value)) minEl.value = el.value;
+    updateGradeSlider(); scheduleFetch();
+  });
+  document.getElementById('min-dist').addEventListener('input', scheduleFetch);
+  document.getElementById('max-dist').addEventListener('input', scheduleFetch);
+  document.getElementById('paved-only').addEventListener('change', scheduleFetch);
+  document.getElementById('bidirectional-only').addEventListener('change', scheduleFetch);
+
+  updateGradeSlider();
+
+  async function fetchArea() {
+    if (activeController) activeController.abort();
+    activeController = new AbortController();
+
+    const center = map.getCenter();
+    const corner = map.getBounds().getNorthEast();
+    const radius_m = center.distanceTo(corner);
+
+    const minDistRaw = parseFloat(document.getElementById('min-dist').value);
+    const maxDistRaw = parseFloat(document.getElementById('max-dist').value);
+    const minGrade = parseFloat(document.getElementById('min-grade').value);
+    const maxGrade = parseFloat(document.getElementById('max-grade').value);
+
+    const body = {
+      lat: center.lat,
+      lng: center.lng,
+      radius_m,
+      min_distance_m: (Number.isFinite(minDistRaw) && minDistRaw > 0) ? minDistRaw * 1000 : null,
+      max_distance_m: Number.isFinite(maxDistRaw) ? maxDistRaw * 1000 : null,
+      min_grade: minGrade > 0 ? minGrade : null,
+      max_grade: maxGrade < GRADE_MAX ? maxGrade : null,
+      paved_only: document.getElementById('paved-only').checked,
+      bidirectional_only: document.getElementById('bidirectional-only').checked,
+    };
+
+    statusEl.className = 'loading';
+    statusEl.textContent = 'loading…';
+
+    try {
+      const res = await fetch('/api/explore', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: activeController.signal,
+      });
+      if (!res.ok) throw new Error('request failed');
+      const climbs = await res.json();
+      renderClimbs(climbs);
+      statusEl.className = '';
+      statusEl.textContent = climbs.length ? `${climbs.length} climb${climbs.length === 1 ? '' : 's'}` : 'no climbs here';
+    } catch (e) {
+      if (e.name === 'AbortError') return;
+      statusEl.className = 'error';
+      statusEl.textContent = 'request failed';
+    }
+  }
+
+  function scheduleFetch() {
+    clearTimeout(fetchTimer);
+    fetchTimer = setTimeout(fetchArea, 400);
+  }
+
+  const EXPLORE_KEY = 'intfnd:explore';
+
+  function saveState() {
+    const center = map.getCenter();
+    sessionStorage.setItem(EXPLORE_KEY, JSON.stringify({
+      lat: center.lat,
+      lng: center.lng,
+      zoom: map.getZoom(),
+      minDist: document.getElementById('min-dist').value,
+      maxDist: document.getElementById('max-dist').value,
+      minGrade: document.getElementById('min-grade').value,
+      maxGrade: document.getElementById('max-grade').value,
+      pavedOnly: document.getElementById('paved-only').checked,
+      bidirectionalOnly: document.getElementById('bidirectional-only').checked,
+    }));
+  }
+
+  function restoreFilters(s) {
+    document.getElementById('min-dist').value = s.minDist;
+    document.getElementById('max-dist').value = s.maxDist;
+    document.getElementById('min-grade').value = s.minGrade;
+    document.getElementById('max-grade').value = s.maxGrade;
+    document.getElementById('paved-only').checked = s.pavedOnly;
+    document.getElementById('bidirectional-only').checked = s.bidirectionalOnly;
+    updateGradeSlider();
+  }
+
+  map.on('moveend', scheduleFetch);
+  map.on('zoomend', scheduleFetch);
+
+  const savedExplore = (() => {
+    try { return JSON.parse(sessionStorage.getItem(EXPLORE_KEY)); } catch { return null; }
+  })();
+
+  if (savedExplore) {
+    restoreFilters(savedExplore);
+    map.setView([savedExplore.lat, savedExplore.lng], savedExplore.zoom);
+  } else if (navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(
+      p => map.setView([p.coords.latitude, p.coords.longitude], 13),
+      () => map.setView([51.505, -0.09], 13)
+    );
+  } else {
+    map.setView([51.505, -0.09], 13);
+  }
+</script>
+</body>
+</html>

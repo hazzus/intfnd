@@ -232,7 +232,7 @@
   <nav class="tabs">
     <a href="/" class="active">Search</a>
     <a href="/about">About</a>
-    <a href="#">Explore</a>
+    <a href="/explore">Explore</a>
   </nav>
 </header>
 
@@ -243,7 +243,7 @@
 
   <div id="info-panel">
     <div id="info-top">
-      <a href="/" class="back-link">← back to search</a>
+      <a id="back-link" href="/" class="back-link">← back to search</a>
       <div id="climb-info">
         <p class="loading">Loading…</p>
       </div>
@@ -261,6 +261,12 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
   const climbId = window.location.pathname.split('/').pop();
+
+  if (new URLSearchParams(window.location.search).get('from') === 'explore') {
+    const bl = document.getElementById('back-link');
+    bl.href = '/explore';
+    bl.textContent = '← back to explore';
+  }
 
   const map = L.map('map');
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -343,10 +349,10 @@
         </div>
         <div class="stat">
           <span class="stat-label">score</span>
-          <span class="stat-value">${Math.trunc(c.score * 100)}</span>
+          <span class="stat-value">${Math.trunc(c.score)}</span>
         </div>
       </div>
-      <p class="score-note">score (0–100, higher is better) reflects climb quality — penalises intersections, uneven gradient and sharp turns.</p>
+      <p class="score-note">score (0–inf, lower is better) reflects climb quality — penalises intersections, traffic signals, uneven gradient and sharp turns.</p>
       ${surfacesHtml}
       ${osmHtml}
     `;
@@ -355,6 +361,7 @@
   function renderMap(c) {
     if (c.polyline) {
       const pts = decodePolyline(c.polyline);
+      climbPts = pts;
       if (pts.length) {
         const line = L.polyline(pts, {
           color: '#fc4c02',
@@ -428,10 +435,77 @@
     }
     svgInner += `<path class="chart-fill" d="${fillPath}"/>`;
     svgInner += `<path class="chart-line" d="${path}"/>`;
+    svgInner += `<line id="cursor-line" x1="0" y1="${padT}" x2="0" y2="${padT + innerH}" stroke="#555" stroke-width="1" stroke-dasharray="3,3" opacity="0" pointer-events="none"/>`;
+    svgInner += `<circle id="cursor-dot" r="3" fill="#fc4c02" stroke="#fff" stroke-width="1.5" opacity="0" pointer-events="none"/>`;
+    svgInner += `<text id="cursor-grade" x="0" y="${padT + 12}" text-anchor="middle" font-size="10" fill="#222" font-family="monospace" font-weight="bold" opacity="0" pointer-events="none"></text>`;
+    svgInner += `<rect id="chart-overlay" x="${padL}" y="${padT}" width="${innerW}" height="${innerH}" fill="transparent" style="cursor:crosshair"/>`;
     svg.innerHTML = svgInner;
+
+    const stepDist = distance / (n - 1);
+    const overlay = document.getElementById('chart-overlay');
+    const cursorLine = document.getElementById('cursor-line');
+    const cursorDot = document.getElementById('cursor-dot');
+    const cursorGrade = document.getElementById('cursor-grade');
+
+    overlay.addEventListener('mousemove', (e) => {
+      const svgRect = svg.getBoundingClientRect();
+      const frac = Math.min(1, Math.max(0, (e.clientX - svgRect.left - padL) / innerW));
+      const floatIdx = frac * (n - 1);
+      const idx = Math.min(n - 2, Math.floor(floatIdx));
+      const t = floatIdx - idx;
+      const elevAtX = elev[idx] * (1 - t) + elev[idx + 1] * t;
+      const grade = (elev[idx + 1] - elev[idx]) / stepDist * 100;
+
+      const x = padL + frac * innerW;
+      const y = yAt(elevAtX);
+      const labelX = Math.min(padL + innerW - 16, Math.max(padL + 16, x));
+
+      cursorLine.setAttribute('x1', x); cursorLine.setAttribute('x2', x); cursorLine.setAttribute('opacity', '1');
+      cursorDot.setAttribute('cx', x); cursorDot.setAttribute('cy', y); cursorDot.setAttribute('opacity', '1');
+      cursorGrade.setAttribute('x', labelX); cursorGrade.setAttribute('opacity', '1');
+      cursorGrade.textContent = grade.toFixed(1) + '%';
+
+      const pos = getPointAtFrac(climbPts, frac);
+      if (pos) {
+        if (!chartMarker) {
+          chartMarker = L.circleMarker(pos, { radius: 5, color: '#fff', fillColor: '#222', fillOpacity: 1, weight: 2 }).addTo(map);
+        } else {
+          chartMarker.setLatLng(pos);
+        }
+      }
+    });
+
+    overlay.addEventListener('mouseleave', () => {
+      cursorLine.setAttribute('opacity', '0');
+      cursorDot.setAttribute('opacity', '0');
+      cursorGrade.setAttribute('opacity', '0');
+      if (chartMarker) { chartMarker.remove(); chartMarker = null; }
+    });
   }
 
   let currentClimb = null;
+  let climbPts = null;
+  let chartMarker = null;
+
+  function getPointAtFrac(pts, frac) {
+    if (!pts || pts.length < 2) return null;
+    const cum = [0];
+    for (let i = 1; i < pts.length; i++) {
+      const dlat = pts[i][0] - pts[i-1][0];
+      const dlng = pts[i][1] - pts[i-1][1];
+      cum.push(cum[cum.length-1] + Math.sqrt(dlat*dlat + dlng*dlng));
+    }
+    const total = cum[cum.length-1];
+    if (total === 0) return pts[0];
+    const target = Math.min(total, frac * total);
+    for (let i = 1; i < pts.length; i++) {
+      if (cum[i] >= target) {
+        const t = (target - cum[i-1]) / (cum[i] - cum[i-1]);
+        return [pts[i-1][0] + t * (pts[i][0] - pts[i-1][0]), pts[i-1][1] + t * (pts[i][1] - pts[i-1][1])];
+      }
+    }
+    return pts[pts.length-1];
+  }
 
   async function load() {
     try {

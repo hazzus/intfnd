@@ -157,7 +157,7 @@ def _detect_in_pass(lats, lngs, cum, elev, min_length, min_grade, min_gain, prom
 def _build_chain(conn: psycopg2.extensions.connection, chain_id: int):
     way_ids = get_chain(conn, chain_id)
     if not way_ids:
-        return None
+        return "no ways found for chain_id"
 
     with conn.cursor() as cur:
         cur.execute(
@@ -169,7 +169,7 @@ def _build_chain(conn: psycopg2.extensions.connection, chain_id: int):
     node_id_set: set[int] = set()
     for wid in way_ids:
         if wid not in way_map:
-            return None
+            return f"way {wid} missing from ways table"
         node_id_set.update(way_map[wid][3])
 
     with conn.cursor() as cur:
@@ -180,8 +180,10 @@ def _build_chain(conn: psycopg2.extensions.connection, chain_id: int):
         node_map = {r[0]: (r[1], r[2], r[3]) for r in cur.fetchall()}
 
     for nid in node_id_set:
-        if nid not in node_map or node_map[nid][2] is None:
-            return None
+        if nid not in node_map:
+            return f"node {nid} missing from nodes table"
+        if node_map[nid][2] is None:
+            return f"node {nid} has no elevation"
 
     coords: list[tuple[float, float]] = []
     elevations: list[float] = []
@@ -189,7 +191,7 @@ def _build_chain(conn: psycopg2.extensions.connection, chain_id: int):
     node_ids: list[int] = []
 
     prev_end: int | None = None
-    for wid in way_ids:
+    for i, wid in enumerate(way_ids):
         _, _, _, nodes, _ = way_map[wid]
         if prev_end is not None:
             if nodes[0] == prev_end:
@@ -197,7 +199,13 @@ def _build_chain(conn: psycopg2.extensions.connection, chain_id: int):
             elif nodes[-1] == prev_end:
                 seg = nodes[::-1]
             else:
-                return None
+                return f"way {wid} disconnected: prev_end={prev_end}, way starts={nodes[0]}, ends={nodes[-1]}"
+        elif len(way_ids) > 1:
+            # orient the head so its connecting node faces the next way; its
+            # stored direction is otherwise arbitrary and may point at the terminus
+            nxt = way_map[way_ids[i + 1]][3]
+            nxt_ends = {nxt[0], nxt[-1]}
+            seg = nodes[::-1] if (nodes[0] in nxt_ends and nodes[-1] not in nxt_ends) else nodes
         else:
             seg = nodes
 
@@ -269,14 +277,14 @@ def _detect_chain_climbs(
     if cum[-1] < min_length:
         return []
 
-    node_cum = np.array(_cumulative_distances(coords))
+    chain_cum = _cumulative_distances(coords)
+    node_cum = np.array(chain_cum)
     elev = np.interp(cum, node_cum, elevations)
 
     w = max(1, int(round(smooth_window / sample_step)))
     if 1 < w < len(elev):
         elev = uniform_filter1d(elev, size=w, mode="nearest")
 
-    chain_cum = _cumulative_distances(coords)
     chain_total = chain_cum[-1] if chain_cum else 0.0
 
     passes: list[tuple] = [(False, lats, lngs, cum, elev)]
@@ -334,7 +342,7 @@ def _worker_batch(args: tuple) -> tuple[int, int]:
         total = skipped = 0
         for chain_id in chain_ids:
             chain = _build_chain(conn, chain_id)
-            if chain is None:
+            if isinstance(chain, str):
                 skipped += 1
                 continue
             if chain["is_cycle"]:
@@ -382,7 +390,7 @@ def process_climbs(
         conn = psycopg2.connect(dsn)
         for chain_id in tqdm(chain_ids, unit="chain"):
             chain = _build_chain(conn, chain_id)
-            if chain is None:
+            if isinstance(chain, str):
                 skipped += 1
                 continue
             if chain["is_cycle"]:
@@ -404,111 +412,3 @@ def process_climbs(
                 skipped += s
 
     log.info("inserted %d proto_climbs; skipped %d chains", total, skipped)
-
-
-def debug_chain(
-    dsn: str,
-    chain_id: int,
-    sample_step: float = 10.0,
-    smooth_window: float = 100.0,
-    min_length: float = 300.0,
-    min_grade: float = 0.01,
-    min_gain: float = 0.0,
-    prominence: float = 10.0,
-) -> None:
-    p = print
-    p(f"\n=== chain {chain_id} ===")
-
-    conn = psycopg2.connect(dsn)
-    try:
-        chain = _build_chain(conn, chain_id)
-    finally:
-        conn.close()
-
-    if chain is None:
-        p("FAIL: _build_chain returned None (missing elevation or disconnected ways)")
-        return
-
-    coords = chain["coords"]
-    elevations = chain["elevations"]
-    p(f"coords: {len(coords)}  is_cycle={chain['is_cycle']}  bidirectional={chain['bidirectional']}  highway={chain['highway']!r}")
-    p(f"elevation range: {min(elevations):.1f}m – {max(elevations):.1f}m")
-
-    if chain["is_cycle"]:
-        chain = _rotate_cycle(chain)
-        elevations = chain["elevations"]
-        p(f"rotated cycle: elevation now {elevations[0]:.1f}m – {elevations[-1]:.1f}m")
-
-    resampled = _resample(coords, sample_step)
-    if resampled is None:
-        p("FAIL: _resample returned None")
-        return
-    lats, lngs, cum = resampled
-    chain_total = cum[-1]
-    p(f"resampled: {len(lats)} points  total={chain_total:.1f}m  step={sample_step}m")
-
-    if chain_total < min_length:
-        p(f"SKIP: {chain_total:.1f}m < min_length {min_length:.1f}m")
-        return
-
-    node_cum = np.array(_cumulative_distances(coords))
-    elev = np.interp(cum, node_cum, np.array(elevations, dtype=float))
-
-    w = max(1, int(round(smooth_window / sample_step)))
-    if 1 < w < len(elev):
-        elev = uniform_filter1d(elev, size=w, mode="nearest")
-        p(f"smoothed with window={smooth_window}m ({w} samples)")
-
-    passes = [(False, lats, lngs, cum, elev)]
-    if chain["bidirectional"]:
-        passes.append((True, lats[::-1], lngs[::-1], cum[-1] - cum[::-1], elev[::-1]))
-
-    for reversed_pass, p_lats, p_lngs, p_cum, p_elev in passes:
-        direction = "reverse" if reversed_pass else "forward"
-        p(f"\n--- {direction} ---")
-
-        extrema = _find_extrema(p_elev, prominence)
-        p(f"extrema (prominence={prominence}m): {len(extrema)}")
-        for idx, kind in extrema:
-            p(f"  [{idx:4d}] {kind:6s}  elev={p_elev[idx]:7.1f}m  dist={p_cum[idx]:8.1f}m  ({p_lats[idx]:.6f}, {p_lngs[idx]:.6f})")
-
-        candidates = []
-        for j in range(len(extrema) - 1):
-            ti, ti_kind = extrema[j]
-            pi, pi_kind = extrema[j + 1]
-            if ti_kind != "trough" or pi_kind != "peak":
-                continue
-            length = float(p_cum[pi] - p_cum[ti])
-            gain = float(p_elev[pi] - p_elev[ti])
-            if length <= 0 or gain <= 0:
-                continue
-            grade = gain / length
-            ok = length >= min_length and grade >= min_grade and gain >= min_gain
-            reasons = []
-            if length < min_length:
-                reasons.append(f"length {length:.0f}m < {min_length:.0f}m")
-            if grade < min_grade:
-                reasons.append(f"grade {grade*100:.2f}% < {min_grade*100:.2f}%")
-            if gain < min_gain:
-                reasons.append(f"gain {gain:.1f}m < {min_gain:.1f}m")
-            flag = "OK  " if ok else "skip"
-            suffix = f"  ({'; '.join(reasons)})" if reasons else ""
-            p(f"  [{flag}] [{ti}→{pi}]  length={length:.0f}m  gain={gain:.1f}m  grade={grade*100:.2f}%{suffix}")
-            if ok:
-                candidates.append((ti, pi, gain * grade))
-
-        if not candidates:
-            p("  no climbs found")
-            continue
-
-        candidates.sort(key=lambda c: -c[2])
-        used = np.zeros(len(p_elev), dtype=bool)
-        selected = []
-        for ti, pi, _ in candidates:
-            if used[ti : pi + 1].any():
-                p(f"  dropped [{ti}→{pi}] overlap")
-                continue
-            used[ti : pi + 1] = True
-            selected.append((ti, pi))
-        selected.sort()
-        p(f"  selected: {len(selected)} climb(s)")

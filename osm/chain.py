@@ -10,18 +10,19 @@ def build_chains(conn: psycopg2.extensions.connection):
         cur.execute("UPDATE ways SET chain_id = id")
         conn.commit()
 
-        # precompute endpoint nodes with exactly 2 ways (static throughout propagation)
+        # precompute (node_id, highway) pairs where exactly 2 ways of that highway
+        # type share the endpoint — unambiguous continuation regardless of node degree
         cur.execute("""
             CREATE TEMP TABLE chain_endpoints AS
-            SELECT node_id FROM (
-                SELECT nodes[1] AS node_id FROM ways
+            SELECT node_id, highway FROM (
+                SELECT nodes[1] AS node_id, highway FROM ways
                 UNION ALL
-                SELECT nodes[array_length(nodes,1)] AS node_id FROM ways
+                SELECT nodes[array_length(nodes,1)] AS node_id, highway FROM ways
             ) e
-            GROUP BY node_id
+            GROUP BY node_id, highway
             HAVING COUNT(*) = 2
         """)
-        cur.execute("CREATE INDEX ON chain_endpoints (node_id)")
+        cur.execute("CREATE INDEX ON chain_endpoints (node_id, highway)")
         conn.commit()
 
         iteration = 0
@@ -34,12 +35,13 @@ def build_chains(conn: psycopg2.extensions.connection):
                         unnest(ARRAY[w1.id, w2.id]) AS way_id,
                         LEAST(w1.chain_id, w2.chain_id) AS min_chain
                     FROM chain_endpoints ce
-                    JOIN ways w1 ON w1.nodes[1] = ce.node_id
-                                 OR w1.nodes[array_length(w1.nodes,1)] = ce.node_id
+                    JOIN ways w1 ON (   w1.nodes[1] = ce.node_id
+                                     OR w1.nodes[array_length(w1.nodes,1)] = ce.node_id)
+                                 AND w1.highway = ce.highway
                     JOIN ways w2 ON (   w2.nodes[1] = ce.node_id
                                      OR w2.nodes[array_length(w2.nodes,1)] = ce.node_id)
+                                 AND w2.highway = ce.highway
                                  AND w1.id < w2.id
-                                 AND w1.highway = w2.highway
                     WHERE w1.chain_id != w2.chain_id
                 ) sub
                 WHERE w.id = sub.way_id
@@ -89,19 +91,39 @@ def get_chain(conn: psycopg2.extensions.connection, chain_id: int) -> list[int]:
     if len(rows) == 1:
         return [rows[0][0]]
 
-    way_info: dict[int, tuple[int, int]] = {way_id: (start, end) for way_id, start, end in rows}
-    end_to_way: dict[int, int] = {end: way_id for way_id, _, end in rows}
-    start_to_way: dict[int, int] = {start: way_id for way_id, start, _ in rows}
+    # Both endpoints for each way, direction-agnostic (mirrors how build_chains links ways)
+    way_endpoints: dict[int, tuple[int, int]] = {way_id: (start, end) for way_id, start, end in rows}
+    node_to_ways: dict[int, list[int]] = {}
+    for way_id, start, end in rows:
+        node_to_ways.setdefault(start, []).append(way_id)
+        if end != start:
+            node_to_ways.setdefault(end, []).append(way_id)
 
-    # head: a way whose start node is not the end of any other way in the chain
-    head = next((way_id for way_id, start, _ in rows if start not in end_to_way), rows[0][0])
+    # head: a way with a terminus endpoint (appears in only one chain way)
+    head = exit_node = None
+    for way_id, start, end in rows:
+        if len(node_to_ways.get(start, [])) == 1:
+            head, exit_node = way_id, end
+            break
+        if len(node_to_ways.get(end, [])) == 1:
+            head, exit_node = way_id, start
+            break
+    if head is None:
+        # cycle — arbitrary starting point
+        head = rows[0][0]
+        exit_node = rows[0][2]
 
-    ordered = []
-    visited: set[int] = set()
-    current: int | None = head
-    while current and current not in visited:
-        ordered.append(current)
-        visited.add(current)
-        current = start_to_way.get(way_info[current][1])
+    ordered: list[int] = [head]
+    visited: set[int] = {head}
+    while exit_node is not None:
+        candidates = [w for w in node_to_ways.get(exit_node, []) if w not in visited]
+        if not candidates:
+            break
+        nxt = candidates[0]
+        ordered.append(nxt)
+        visited.add(nxt)
+        start, end = way_endpoints[nxt]
+        other = {start, end} - {exit_node}
+        exit_node = other.pop() if other else None
 
     return ordered
