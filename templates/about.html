@@ -144,8 +144,8 @@
   <a href="/" class="logo"><img src="/icon.png" alt="">intfnd</a>
   <nav class="tabs">
     <a href="/">Search</a>
-    <a href="/about" class="active">About</a>
     <a href="/explore">Explore</a>
+    <a href="/about" class="active">About</a>
   </nav>
 </header>
 
@@ -163,13 +163,14 @@
         a climb you can actually finish in roughly 5 minutes at your power.
       </p>
       <p>
-        Segment data is imported from OpenStreetMap once per region, elevation data is imported from SRTM_GL1_Ellip.
+        Climb data is imported from OpenStreetMap once per region, elevation data from EU_DTM.
         Ride times are estimated with a standard three-force cycling power model (gravity, rolling resistance, and
         aerodynamic drag), solved numerically for steady-state speed.
       </p>
       <p>
-        Segment data has a score, we punish for intersections, uneven gradient and high degree turns. Time
-        to complete and score define the sort of the search result.
+        Each climb also carries a penalty score that grows with traffic signals, road intersections,
+        sharp turns, and uneven gradient — <strong>lower is better</strong>. The predicted time and this
+        score together determine the order of the search results.
       </p>
     </section>
 
@@ -215,8 +216,8 @@
       </div>
 
       <p>
-        The app solves this with Newton's method (up to 64 iterations, residual tolerance
-        \(10^{-9}\)), then converts to ride time:
+        The app solves this with Newton's method (up to 64 iterations, stopping when the
+        step falls below \(10^{-9}\)), then converts to ride time:
       </p>
 
       <div class="formula">
@@ -265,122 +266,110 @@
       <p>
         Search results are sorted by a combined rank where <strong>lower is better</strong>.
         It blends how far the predicted ride time is from your target interval with the
-        climb's quality score:
+        climb's penalty score:
       </p>
 
       <div class="formula">
-        $$ \text{rank} \;=\; 0.7 \cdot \left(\tfrac{\Delta t}{T}\right)^{\!2} \;+\; 0.3 \cdot \left(1 - \tfrac{\text{score}}{100}\right) $$
+        $$ \text{rank} \;=\; 0.7 \cdot \left(\tfrac{\Delta t}{T}\right)^{\!2} \;+\; 0.3 \cdot \hat{s} $$
       </div>
       <p class="caption">
         \(\Delta t = t_\text{est} - T\) is the gap between the predicted ride time and your
-        target interval \(T\). Squaring penalises symmetric over- and under-shoots equally,
-        and grows fast for poor matches. A higher quality score lowers the rank, pushing
-        better climbs up the list.
+        target interval \(T\). Squaring penalises symmetric over- and under-shoots equally
+        and grows fast for poor matches. \(\hat{s}\) is the climb's penalty score normalised
+        against the other climbs in the same search.
+      </p>
+
+      <div class="formula">
+        $$ \hat{s} \;=\; \frac{s - s_{\min}}{s_{\max} - s_{\min}} $$
+      </div>
+      <p class="caption">
+        \(s_{\min}\) and \(s_{\max}\) are the smallest and largest penalty scores among the
+        climbs returned for this search, so the cleanest match in the area gets
+        \(\hat{s} = 0\) and the worst gets \(\hat{s} = 1\). Because a lower penalty score
+        means a cleaner climb, this pushes better climbs up the list.
       </p>
 
       <p>
         A planned distance term (rewarding climbs closer to the pin) is reserved in the
-        formula but currently fixed at zero.
+        formula but currently weighted at zero. Before ranking, climbs are filtered to those
+        whose predicted time is at most 5 % below the target interval and no more than twice
+        it — \(0.95\,T \le t_\text{est} \le 2\,T\).
       </p>
     </section>
 
     <section>
-      <h2>Climb quality score</h2>
+      <h2>Climb penalty score</h2>
       <p>
-        Every climb has a precomputed quality score from <strong>0 to 100, higher is
-        better</strong>. The score starts at 100 and is reduced by three penalties a rider
-        would feel on a sustained effort:
+        Every climb has a precomputed penalty score where <strong>lower is better</strong>.
+        A perfectly clean climb scores <strong>0</strong>; the score has no upper bound and
+        grows with each thing a rider would dislike on a sustained effort. It is the plain
+        sum of four penalties:
       </p>
 
       <div class="formula">
-        $$ \text{score} \;=\; 100 \cdot \bigl(1 \;-\; 0.3 \cdot p_\text{inter} \;-\; 0.2 \cdot p_\text{turn} \;-\; 0.1 \cdot p_\text{spike} \;-\; 0.4 \cdot p_\text{signal}\bigr) $$
+        $$ s \;=\; p_\text{signal} \;+\; p_\text{inter} \;+\; p_\text{turn} \;+\; p_\text{spike} $$
       </div>
-      <p class="caption">
-        Each penalty term \(p_\text{x} \in [0, 1]\); a clean climb has them all near 0
-        and scores close to 100, a bad one approaches 0. Each \(p_\text{x}\) <strong>saturates
-        at its threshold</strong> — once the raw measurement crosses it, the penalty caps at
-        1.0 and getting worse no longer changes the score. Thresholds are tuned to roughly
-        the 90th percentile of imported climbs, so the worst ~10 % saturate and the rest get
-        a graded penalty.
-      </p>
 
       <p>
-        <strong>Weighted intersection density</strong> — count of OSM nodes along the climb
-        that are real junctions (degree ≥ 3 in the cyclable network), per km, with each
-        junction weighted by the size of the road crossing relative to the climb itself. A
-        primary road crossing a residential climb counts heavily; a footpath branching off a
-        primary climb barely registers. Saturates at 5 weighted intersections per km:
+        <strong>Traffic signals</strong> — each OSM <code>traffic_signals</code> node on the
+        climb adds a flat penalty, since a red light is a hard stop on a timed effort:
       </p>
       <div class="formula">
-        $$ p_\text{inter} \;=\; \min\!\left(1,\; \tfrac{1}{5} \cdot \tfrac{1}{L_\text{km}} \sum_{i \in \text{inter}} w_i \right) $$
+        $$ p_\text{signal} \;=\; 50 \cdot n_\text{signals} $$
+      </div>
+
+      <p>
+        <strong>Intersections</strong> — every node on the climb that is a real junction
+        (degree &gt; 2 in the road network) is penalised in proportion to the importance of
+        the largest road crossing there. A primary road crossing counts far more than a
+        track:
+      </p>
+      <div class="formula">
+        $$ p_\text{inter} \;=\; 6 \cdot \sum_{i \in \text{junctions}} r_i $$
       </div>
       <p class="caption">
-        \(w_i = \max\!\left(\tfrac{M_\text{cross}}{M_\text{climb}},\; 0.1\right)\), where
-        \(M_\text{cross}\) is the largest highway-class magnitude among ways meeting the climb
-        at junction \(i\) but not part of the climb, and \(M_\text{climb}\) is the climb's
-        own highway-class magnitude. The 0.1 floor keeps tiny crossings from disappearing
-        entirely. Magnitudes are listed below.
+        \(r_i\) is the highest highway rank among the ways meeting the climb at junction
+        \(i\) that are not themselves part of the climb. Ranks are listed below; any highway
+        class not in the table contributes 0.
       </p>
 
       <table class="constants">
-        <tr><th>motorway, motorway_link</th><td class="val">10</td><td class="note"></td></tr>
-        <tr><th>trunk, trunk_link</th><td class="val">8</td><td class="note"></td></tr>
-        <tr><th>primary</th><td class="val">6</td><td class="note"></td></tr>
-        <tr><th>primary_link, secondary</th><td class="val">4</td><td class="note"></td></tr>
-        <tr><th>secondary_link, tertiary</th><td class="val">3</td><td class="note"></td></tr>
-        <tr><th>tertiary_link, unclassified, residential</th><td class="val">2</td><td class="note">smaller through roads</td></tr>
-        <tr><th>living_street</th><td class="val">1.5</td><td class="note"></td></tr>
-        <tr><th>service, track</th><td class="val">1</td><td class="note">driveways, farm tracks</td></tr>
-        <tr><th>cycleway</th><td class="val">0.5</td><td class="note"></td></tr>
-        <tr><th>path, footway, bridleway</th><td class="val">0.3</td><td class="note"></td></tr>
-        <tr><th>pedestrian, steps</th><td class="val">0.2</td><td class="note"></td></tr>
+        <tr><th>primary, primary_link</th><td class="val">5</td><td class="note"></td></tr>
+        <tr><th>secondary, secondary_link</th><td class="val">4</td><td class="note"></td></tr>
+        <tr><th>tertiary, tertiary_link</th><td class="val">3</td><td class="note"></td></tr>
+        <tr><th>unclassified, residential</th><td class="val">2</td><td class="note">smaller through roads</td></tr>
+        <tr><th>living_street, road</th><td class="val">1</td><td class="note"></td></tr>
+        <tr><th>cycleway, track</th><td class="val">0</td><td class="note">no penalty</td></tr>
       </table>
 
       <p>
-        <strong>Turn severity</strong> at those intersections — each turn contributes a
-        super-linear penalty so a single sharp turn outweighs many gentle ones. The summed
-        severity is normalised by \(\sqrt{L_\text{km}}\) (sub-linear length normalisation, so
-        a long climb with many gentle bends isn't over-penalised but a single hairpin on a
-        long climb isn't washed out either). Saturates at 1.5:
+        <strong>Sharp turns</strong> — at those same junctions, any turn of at least 20°
+        adds a penalty proportional to its angle. Gentle bends below the threshold are
+        ignored entirely:
       </p>
       <div class="formula">
-        $$ p_\text{turn} \;=\; \min\!\left(1,\; \tfrac{1}{1.5} \cdot \tfrac{1}{\sqrt{L_\text{km}}} \sum_{i \in \text{inter}} \!\left(\tfrac{|\Delta\theta_i|}{90°}\right)^{\!2} \right) $$
+        $$ p_\text{turn} \;=\; 0.2 \cdot \sum_{\substack{i \in \text{junctions} \\ |\Delta\theta_i| \ge 20°}} |\Delta\theta_i| $$
       </div>
       <p class="caption">
-        At the reference angle of 90° a single turn contributes severity 1.0; four 30°
-        turns together contribute only \(4 \cdot (1/3)^2 \approx 0.44\).
+        \(\Delta\theta_i\) is the turn angle in degrees at junction \(i\). Only turns at
+        junctions count — a smooth curve in the middle of a road does not.
       </p>
 
       <p>
-        <strong>Worst spike relative to average grade</strong> — on the smoothed elevation
-        profile, the largest deviation of any per-sample grade from the climb's average,
-        expressed as a multiple of that average. A uniformly-steep 9 % climb has no spike; a
-        3 % climb with a 20 % ramp halfway up does. Saturates at 6× the average grade:
+        <strong>Gradient spikes</strong> — the elevation profile is resampled every 10 m and
+        its per-sample grade compared against that same grade smoothed over a 250 m window.
+        Each sample adds however much its local grade deviates from the smoothed trend,
+        beyond a 4 % deadband:
       </p>
       <div class="formula">
-        $$ p_\text{spike} \;=\; \min\!\left(1,\; \tfrac{1}{6} \cdot \tfrac{\max_i |\text{grade}_i - \overline{\text{grade}}|}{\overline{\text{grade}}}\right) $$
-      </div>
-      <p>
-        The spike term carries a small weight (0.1). Per-sample grade is
-        derived from SRTM elevation samples ~10 m apart, and SRTM's vertical noise is roughly
-        the same magnitude as the height differences between adjacent samples on a real road —
-        so a single noisy sample can look like a 20 % ramp that isn't there. Treat
-        \(p_\text{spike}\) as a weak hint, not a measurement.
-      </p>
-
-      <p>
-        <strong>Traffic signal density</strong> — count of OSM <code>traffic_signal</code>
-        nodes on the climb, per km. A climb interrupted by frequent traffic lights disrupts
-        a sustained effort even if the road is otherwise clean. Saturates at 0.5 signals per
-        km (one light every 2 km):
-      </p>
-      <div class="formula">
-        $$ p_\text{signal} \;=\; \min\!\left(1,\; \frac{\text{signals per km}}{0.5}\right) $$
+        $$ p_\text{spike} \;=\; \sum_i \max\!\left(0,\; \left| g_i - \bar{g}_i \right| - 0.04 \right) $$
       </div>
       <p class="caption">
-        Traffic signals carry the highest weight (0.4) because a red light on a timed effort
-        is a hard stop — unlike an intersection you can roll through or a gradient spike that
-        only slows you down.
+        \(g_i\) is the raw grade at sample \(i\) and \(\bar{g}_i\) the smoothed grade. The
+        4 % deadband absorbs DEM noise: elevation comes from EU_DTM samples whose vertical
+        error is comparable to the height change between adjacent samples on a real road, so
+        a single noisy point can look like a ramp that isn't there. Treat this term as a weak
+        hint, not a measurement.
       </p>
     </section>
 
