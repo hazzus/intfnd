@@ -12,6 +12,12 @@ use crate::{models::Climb, AppState};
 
 const MAX_RESULTS: usize = 150;
 
+// Screen-fit ranking: prefer climbs whose length is a good fraction of the
+// search radius, then rank by score (penalty). `TARGET_FRAC` sets the ideal
+// climb length relative to the radius; `FIT_WEIGHT` trades off size-fit vs score.
+const TARGET_FRAC: f64 = 0.75;
+const FIT_WEIGHT: f64 = 30.0;
+
 #[derive(Deserialize)]
 pub struct ExploreRequest {
     pub lat: f64,
@@ -73,7 +79,7 @@ pub async fn explore(
          AND ($7::float8 IS NULL OR average_grade <= $7)
          AND (NOT $8 OR is_paved = TRUE)
          AND (NOT $9 OR bidirectional = TRUE)
-         ORDER BY score ASC
+         ORDER BY power(ln(distance / $11), 2) * $12 + score ASC
          LIMIT $10",
     )
     .bind(req.lng)
@@ -86,6 +92,8 @@ pub async fn explore(
     .bind(req.paved_only)
     .bind(req.bidirectional_only)
     .bind(MAX_RESULTS as i64)
+    .bind((req.radius_m * TARGET_FRAC).max(1.0))
+    .bind(FIT_WEIGHT)
     .fetch_all(&state.pool)
     .await
     {

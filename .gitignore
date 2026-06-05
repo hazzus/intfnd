@@ -7,4 +7,5 @@ intfnd.sql
 /osm/.venv
 __pycache__/
 *.pyc
+*.out
 

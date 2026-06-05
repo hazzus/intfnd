@@ -34,10 +34,16 @@ _INTERSECTION_SCALE = 6.0
 _TURN_THRESHOLD = 20.0
 _TURN_SCALE     = 0.2
 
-_SPIKE_STEP      = 10.0   # resample interval in meters
-_SPIKE_WINDOW    = 250.0  # smoothing window in meters
-_SPIKE_THRESHOLD = 0.04   # grade deviation below which we ignore noise
-_SPIKE_SCALE     = 1.0
+# Elevation comes from EU-DTM (~30 m grid, ~2-3 m vertical RMSE). Grade noise
+# scales as sqrt(2) * sigma_elev / span, so differentiating below the grid is
+# almost pure noise. We resample at the grid (no sub-cell staircase) and measure
+# grade over ~100 m, which drops the residual grade noise to a few percent.
+_SPIKE_STEP       = 30.0   # resample interval in meters (matched to DEM grid)
+_SPIKE_GRADE_SPAN = 100.0  # distance over which local grade is measured (m)
+_SPIKE_WINDOW     = 250.0  # baseline trend window in meters
+_SPIKE_THRESHOLD  = 0.07   # noise floor: above residual EU-DTM grade noise at 100 m
+_SPIKE_CAP        = 0.15   # max per-point excess, so one bad cell can't dominate
+_SPIKE_SCALE      = 1.0
 
 _PROFILE_STEP   = 20.0   # uniform resample interval for stored profile (m)
 _PROFILE_WINDOW = 400.0  # Savitzky-Golay window (m)
@@ -78,21 +84,32 @@ def _resample(node_data: list[tuple], step: float) -> tuple[np.ndarray, float] |
 
 
 def _spike_penalty(node_data: list[tuple]) -> float:
-    """Compute gradient spike penalty from node (lat, lng, elevation) tuples."""
+    """Compute gradient spike penalty from node (lat, lng, elevation) tuples.
+
+    Calibrated to EU-DTM noise: local grade is measured over a ~100 m span
+    (a wide finite difference that averages down DEM noise) and compared to a
+    longer trend; only deviation above the noise floor is counted, capped so a
+    single bad cell can't dominate.
+    """
     result = _resample(node_data, _SPIKE_STEP)
     if result is None:
         return 0.0
     uniform_elev, total = result
 
-    n_pts    = len(uniform_elev)
-    step     = total / (n_pts - 1)
-    raw_grad = np.diff(uniform_elev) / step
+    n_pts = len(uniform_elev)
+    step  = total / (n_pts - 1)
 
-    window     = max(1, int(round(_SPIKE_WINDOW / step)))
-    smooth_grad = uniform_filter1d(raw_grad, size=window, mode="nearest")
+    # local grade over ~100 m: wider finite difference suppresses DEM noise
+    span = max(1, int(round(_SPIKE_GRADE_SPAN / step)))
+    if uniform_elev.size <= span:
+        return 0.0
+    grad = (uniform_elev[span:] - uniform_elev[:-span]) / (span * step)
 
-    dev    = np.abs(raw_grad - smooth_grad)
-    excess = np.maximum(0.0, dev - _SPIKE_THRESHOLD)
+    window      = max(1, int(round(_SPIKE_WINDOW / step)))
+    smooth_grad = uniform_filter1d(grad, size=window, mode="nearest")
+
+    dev    = np.abs(grad - smooth_grad)
+    excess = np.minimum(np.maximum(0.0, dev - _SPIKE_THRESHOLD), _SPIKE_CAP)
     return float(np.sum(excess)) * _SPIKE_SCALE
 
 
@@ -265,8 +282,8 @@ def score_proto(
     return _score_climb(node_ids, way_ids, nodes, ways, distance, start_lat, start_lng, crossing_cache)
 
 
-def score_climbs(dsn: str) -> int:
-    """Score each proto_climb and insert into climbs. Returns number inserted."""
+def score_climbs(dsn: str, region: str) -> int:
+    """Score each proto_climb and insert into climbs (tagged with region). Returns number inserted."""
     read_conn = psycopg2.connect(dsn)
     write_conn = psycopg2.connect(dsn)
 
@@ -286,7 +303,7 @@ def score_climbs(dsn: str) -> int:
                     start_lat, start_lng, end_lat, end_lng,
                     polyline, surfaces, is_paved,
                     elevation_profile, osm_way_ids,
-                    bidirectional, score
+                    bidirectional, score, region
                 ) VALUES %s
                 ON CONFLICT (start_lat, start_lng, end_lat, end_lng, osm_way_ids) DO UPDATE SET
                     name              = EXCLUDED.name,
@@ -297,9 +314,10 @@ def score_climbs(dsn: str) -> int:
                     is_paved          = EXCLUDED.is_paved,
                     elevation_profile = EXCLUDED.elevation_profile,
                     bidirectional     = EXCLUDED.bidirectional,
-                    score             = EXCLUDED.score
+                    score             = EXCLUDED.score,
+                    region            = EXCLUDED.region
                 """,
-                rows,
+                [r + (region,) for r in rows],
             )
         write_conn.commit()
         return cur.rowcount
@@ -308,6 +326,13 @@ def score_climbs(dsn: str) -> int:
     batch: dict[tuple, tuple] = {}
 
     try:
+        # climbs accumulates across regions; this region's rows are fully regenerated
+        # from proto_climbs each run. Clear only this region's stale rows (strip changes
+        # start/end coords, so the upsert key can't overwrite them).
+        with write_conn.cursor() as cur:
+            cur.execute("DELETE FROM climbs WHERE region = %s", (region,))
+        write_conn.commit()
+
         with write_conn.cursor() as cur:
             cur.execute("SELECT COUNT(*) FROM proto_climbs")
             total = cur.fetchone()[0]

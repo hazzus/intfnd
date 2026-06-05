@@ -40,7 +40,7 @@
       border-radius: 4px;
     }
     nav.tabs a:hover { background: #f4f4f4; color: #222; }
-    nav.tabs a.active { background: #fc4c02; color: #fff; }
+    nav.tabs a.active { background: #2563eb; color: #fff; }
 
     /* ── main ── */
     main {
@@ -86,7 +86,7 @@
 
     .back-link {
       font-size: 0.8rem;
-      color: #fc4c02;
+      color: #2563eb;
       text-decoration: none;
     }
     .back-link:hover { text-decoration: underline; }
@@ -171,22 +171,39 @@
       border: 1px solid #ddd;
       border-radius: 4px;
       padding: 8px 10px;
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
     }
-    .osm-source-label { font-size: 0.72rem; color: #888; text-transform: uppercase; letter-spacing: 0.04em; }
-    .osm-links { display: flex; flex-wrap: wrap; gap: 4px; }
+    .osm-source-label {
+      font-size: 0.72rem;
+      color: #888;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      cursor: pointer;
+      list-style: none;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      user-select: none;
+    }
+    .osm-source-label::-webkit-details-marker { display: none; }
+    .osm-source-label::before {
+      content: '▸';
+      font-size: 0.7rem;
+      transition: transform 0.15s ease;
+    }
+    .osm-source[open] > .osm-source-label::before { transform: rotate(90deg); }
+    .osm-source-label:hover { color: #555; }
+    .osm-count { color: #bbb; }
+    .osm-links { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
     .osm-link {
       font-size: 0.72rem;
       padding: 2px 6px;
       border-radius: 3px;
       background: #fff5ef;
-      color: #fc4c02;
+      color: #2563eb;
       border: 1px solid #fcd9c5;
       text-decoration: none;
     }
-    .osm-link:hover { background: #fc4c02; color: #fff; border-color: #fc4c02; }
+    .osm-link:hover { background: #2563eb; color: #fff; border-color: #2563eb; }
 
     #climb-info {
       display: flex;
@@ -213,8 +230,8 @@
       display: block;
     }
     .chart-axis { stroke: #ccc; stroke-width: 1; }
-    .chart-line { fill: none; stroke: #fc4c02; stroke-width: 2; }
-    .chart-fill { fill: rgba(252, 76, 2, 0.12); stroke: none; }
+    .chart-line { fill: none; stroke: #2563eb; stroke-width: 2; }
+    .chart-fill { fill: rgba(37, 99, 235, 0.12); stroke: none; }
     .chart-tick { font-size: 10px; fill: #888; font-family: monospace; }
 
     .loading, .error {
@@ -318,12 +335,12 @@
 
     const osmHtml = (c.osm_way_ids && c.osm_way_ids.length)
       ? `
-        <div class="osm-source">
-          <span class="osm-source-label">OSM source</span>
+        <details class="osm-source">
+          <summary class="osm-source-label">OSM source <span class="osm-count">(${c.osm_way_ids.length})</span></summary>
           <div class="osm-links">
             ${c.osm_way_ids.map(id => `<a class="osm-link" href="https://www.openstreetmap.org/way/${id}" target="_blank" rel="noopener">way ${id}</a>`).join('')}
           </div>
-        </div>`
+        </details>`
       : '';
 
     document.getElementById('climb-info').innerHTML = `
@@ -364,7 +381,7 @@
       climbPts = pts;
       if (pts.length) {
         const line = L.polyline(pts, {
-          color: '#fc4c02',
+          color: '#2563eb',
           weight: 4,
           opacity: 0.9,
         }).addTo(map);
@@ -374,7 +391,7 @@
     L.circleMarker([c.start_lat, c.start_lng], {
       radius: 6,
       color: '#fff',
-      fillColor: '#fc4c02',
+      fillColor: '#2563eb',
       fillOpacity: 1,
       weight: 2,
     }).addTo(map);
@@ -436,7 +453,7 @@
     svgInner += `<path class="chart-fill" d="${fillPath}"/>`;
     svgInner += `<path class="chart-line" d="${path}"/>`;
     svgInner += `<line id="cursor-line" x1="0" y1="${padT}" x2="0" y2="${padT + innerH}" stroke="#555" stroke-width="1" stroke-dasharray="3,3" opacity="0" pointer-events="none"/>`;
-    svgInner += `<circle id="cursor-dot" r="3" fill="#fc4c02" stroke="#fff" stroke-width="1.5" opacity="0" pointer-events="none"/>`;
+    svgInner += `<circle id="cursor-dot" r="3" fill="#2563eb" stroke="#fff" stroke-width="1.5" opacity="0" pointer-events="none"/>`;
     svgInner += `<text id="cursor-grade" x="0" y="${padT + 12}" text-anchor="middle" font-size="10" fill="#222" font-family="monospace" font-weight="bold" opacity="0" pointer-events="none"></text>`;
     svgInner += `<rect id="chart-overlay" x="${padL}" y="${padT}" width="${innerW}" height="${innerH}" fill="transparent" style="cursor:crosshair"/>`;
     svg.innerHTML = svgInner;

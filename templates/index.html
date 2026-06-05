@@ -40,7 +40,7 @@
       border-radius: 4px;
     }
     nav.tabs a:hover { background: #f4f4f4; color: #222; }
-    nav.tabs a.active { background: #fc4c02; color: #fff; }
+    nav.tabs a.active { background: #2563eb; color: #fff; }
 
     /* ── main ── */
     main {
@@ -87,14 +87,14 @@
       background: #fff;
       width: 100%;
     }
-    input[type=number]:focus { outline: none; border-color: #fc4c02; }
-    input[type=range] { flex: 1; accent-color: #fc4c02; min-width: 0; }
+    input[type=number]:focus { outline: none; border-color: #2563eb; }
+    input[type=range] { flex: 1; accent-color: #2563eb; min-width: 0; }
     .radius-row { display: flex; align-items: center; gap: 8px; font-size: 0.85rem; color: #555; }
     .radius-row input[type=number] { width: 70px; padding: 6px 8px; }
 
     #find-btn {
       padding: 10px;
-      background: #fc4c02;
+      background: #2563eb;
       color: #fff;
       border: none;
       border-radius: 4px;
@@ -104,7 +104,7 @@
       cursor: pointer;
       width: 100%;
     }
-    #find-btn:hover:not(:disabled) { background: #e04400; }
+    #find-btn:hover:not(:disabled) { background: #1d4ed8; }
     #find-btn:disabled { opacity: 0.6; cursor: default; }
 
     #warnings { display: flex; flex-direction: column; gap: 4px; }
@@ -122,14 +122,14 @@
     .result-name {
       font-size: 0.9rem;
       font-weight: bold;
-      color: #fc4c02;
+      color: #2563eb;
       text-decoration: underline;
       text-underline-offset: 2px;
     }
     .result-name::after { content: ' →'; font-weight: normal; }
-    .result-name:hover { color: #b73600; }
+    .result-name:hover { color: #1e40af; }
     .result-card { cursor: pointer; transition: border-color 0.1s, box-shadow 0.1s; }
-    .result-card:hover { border-color: #fc4c02; box-shadow: 0 1px 4px rgba(252, 76, 2, 0.18); }
+    .result-card:hover { border-color: #2563eb; box-shadow: 0 1px 4px rgba(37, 99, 235, 0.18); }
     .results-hint {
       font-size: 0.75rem;
       color: #777;
@@ -158,7 +158,34 @@
       cursor: pointer;
       user-select: none;
     }
-    .toggle input { accent-color: #fc4c02; cursor: pointer; }
+    .toggle input { accent-color: #2563eb; cursor: pointer; }
+
+    /* ── collapsible search parameters ── */
+    #search-section { display: flex; flex-direction: column; gap: 14px; }
+    #params-body { display: flex; flex-direction: column; gap: 14px; }
+    .params-toggle {
+      display: none;                 /* hidden until a search has been made */
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+      padding: 9px 12px;
+      background: #fff;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 0.8rem;
+      color: #555;
+      cursor: pointer;
+      text-align: left;
+    }
+    .params-toggle:hover { border-color: #2563eb; color: #222; }
+    .params-toggle .chevron { margin-left: auto; color: #2563eb; transition: transform 0.15s; }
+    .params-summary { color: #777; }
+    /* once searched, the toggle bar appears and the body can collapse */
+    #form-panel.searched .params-toggle { display: flex; }
+    #form-panel.searched #search-section.collapsed #params-body { display: none; }
+    #search-section.collapsed .chevron { transform: rotate(-90deg); }
+    #search-section:not(.collapsed) .params-summary { display: none; }
   </style>
 </head>
 <body>
@@ -179,28 +206,37 @@
   </div>
 
   <div id="form-panel">
-    <div class="field">
-      <label for="weight">system weight (kg) -- rider + equipment</label>
-      <input id="weight" type="number" min="1" step="0.1" placeholder="e.g. 83">
-    </div>
-    <div class="field">
-      <label for="power">power (W)</label>
-      <input id="power" type="number" min="1" placeholder="e.g. 280">
-    </div>
-    <div class="field">
-      <label for="interval">interval (s)</label>
-      <input id="interval" type="number" min="1" placeholder="e.g. 300">
-    </div>
-    <div class="field">
-      <label for="radius">search radius</label>
-      <div class="radius-row">
-        <input id="radius" type="range" min="500" max="20000" step="100" value="2000">
-        <input id="radius-km" type="number" min="0.1" step="0.1" value="2.0">
-        <span>km</span>
+    <div id="search-section">
+      <button id="params-toggle" class="params-toggle" type="button">
+        <span>search parameters</span>
+        <span class="params-summary" id="params-summary"></span>
+        <span class="chevron">▼</span>
+      </button>
+      <div id="params-body">
+        <div class="field">
+          <label for="weight">system weight (kg) -- rider + equipment</label>
+          <input id="weight" type="number" min="1" step="0.1" placeholder="e.g. 83">
+        </div>
+        <div class="field">
+          <label for="power">power (W)</label>
+          <input id="power" type="number" min="1" placeholder="e.g. 280">
+        </div>
+        <div class="field">
+          <label for="interval">interval (s)</label>
+          <input id="interval" type="number" min="1" placeholder="e.g. 300">
+        </div>
+        <div class="field">
+          <label for="radius">search radius</label>
+          <div class="radius-row">
+            <input id="radius" type="range" min="500" max="20000" step="100" value="2000">
+            <input id="radius-km" type="number" min="0.1" step="0.1" value="2.0">
+            <span>km</span>
+          </div>
+        </div>
+        <div id="warnings"></div>
+        <button id="find-btn">find</button>
       </div>
     </div>
-    <div id="warnings"></div>
-    <button id="find-btn">find</button>
     <label class="toggle">
       <input id="paved-only" type="checkbox">
       paved only
@@ -228,7 +264,23 @@
     catch { return null; }
   })();
 
-  if (saved && saved.pin) {
+  // shared map position, kept in sync across the Search ↔ Explore tabs
+  const MAP_VIEW_KEY = 'intfnd:mapView';
+  const sharedView = (() => {
+    try { return JSON.parse(sessionStorage.getItem(MAP_VIEW_KEY)); }
+    catch { return null; }
+  })();
+
+  function saveMapView() {
+    const c = map.getCenter();
+    sessionStorage.setItem(MAP_VIEW_KEY, JSON.stringify({ lat: c.lat, lng: c.lng, zoom: map.getZoom() }));
+  }
+  map.on('moveend', saveMapView);
+  map.on('zoomend', saveMapView);
+
+  if (sharedView) {
+    map.setView([sharedView.lat, sharedView.lng], sharedView.zoom);
+  } else if (saved && saved.pin) {
     map.setView([saved.pin.lat, saved.pin.lng], 13);
   } else if (navigator.geolocation) {
     navigator.geolocation.getCurrentPosition(
@@ -286,9 +338,9 @@
     marker = L.marker(latlng).addTo(map);
     circle = L.circle(latlng, {
       radius,
-      color: '#fc4c02',
+      color: '#2563eb',
       weight: 2,
-      fillColor: '#fc4c02',
+      fillColor: '#2563eb',
       fillOpacity: 0.08,
     }).addTo(map);
   }
@@ -303,6 +355,31 @@
   radiusKmInput.addEventListener('input', () => {
     const km = parseFloat(radiusKmInput.value);
     if (Number.isFinite(km) && km > 0) setRadius(km * 1000, 'km');
+  });
+
+  // ── collapsible search parameters ──────────────────────────
+  const formPanel = document.getElementById('form-panel');
+  const searchSection = document.getElementById('search-section');
+  const paramsSummary = document.getElementById('params-summary');
+
+  function updateParamsSummary() {
+    const w  = document.getElementById('weight').value;
+    const p  = document.getElementById('power').value;
+    const iv = document.getElementById('interval').value;
+    const km = (circleRadius / 1000).toFixed(1);
+    paramsSummary.textContent = `${p || '–'}W · ${iv || '–'}s · ${km}km · ${w || '–'}kg`;
+  }
+
+  // collapse=true tucks the inputs away behind the summary bar (used after a search)
+  function collapseParams(collapsed) {
+    formPanel.classList.add('searched');
+    searchSection.classList.toggle('collapsed', collapsed);
+    updateParamsSummary();
+  }
+
+  document.getElementById('params-toggle').addEventListener('click', () => {
+    searchSection.classList.toggle('collapsed');
+    updateParamsSummary();
   });
 
   // ── search ─────────────────────────────────────────────────
@@ -369,15 +446,16 @@
         clearHover();
         if (s.polyline) {
           hoverLayers.push(L.polyline(decodePolyline(s.polyline), {
-            color: '#fc4c02',
+            color: '#2563eb',
             weight: 3,
             opacity: 0.9,
+            dashArray: s.is_paved ? null : '3 7',   // unpaved → dotted line
           }).addTo(map));
         }
         hoverLayers.push(L.circleMarker([s.start_lat, s.start_lng], {
           radius: 5,
           color: '#fff',
-          fillColor: '#fc4c02',
+          fillColor: '#2563eb',
           fillOpacity: 1,
           weight: 2,
         }).addTo(map));
@@ -436,6 +514,7 @@
 
       lastResults = await res.json();
       renderResults();
+      collapseParams(true);
       sessionStorage.setItem(SAVED_KEY, JSON.stringify({
         pin: { lat: pinLatLng.lat, lng: pinLatLng.lng },
         radius: circleRadius,
@@ -463,6 +542,7 @@
     if (Array.isArray(saved.results)) {
       lastResults = saved.results;
       renderResults();
+      collapseParams(true);
     }
   }
 </script>

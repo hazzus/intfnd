@@ -40,7 +40,7 @@
       border-radius: 4px;
     }
     nav.tabs a:hover { background: #f4f4f4; color: #222; }
-    nav.tabs a.active { background: #fc4c02; color: #fff; }
+    nav.tabs a.active { background: #2563eb; color: #fff; }
 
     /* ── filter bar ── */
     #filter-bar {
@@ -67,7 +67,7 @@
       font-size: 0.8rem;
       background: #fafafa;
     }
-    .filter-group input[type=number]:focus { outline: none; border-color: #fc4c02; background: #fff; }
+    .filter-group input[type=number]:focus { outline: none; border-color: #2563eb; background: #fff; }
 
     /* dual-range grade slider */
     .dual-range {
@@ -88,7 +88,7 @@
     .dr-fill {
       position: absolute;
       height: 4px;
-      background: #fc4c02;
+      background: #2563eb;
       border-radius: 2px;
       pointer-events: none;
     }
@@ -109,20 +109,20 @@
       -webkit-appearance: none;
       width: 14px; height: 14px;
       border-radius: 50%;
-      background: #fc4c02;
+      background: #2563eb;
       cursor: pointer;
       border: 2px solid #fff;
-      box-shadow: 0 0 0 1.5px #fc4c02;
+      box-shadow: 0 0 0 1.5px #2563eb;
     }
     .dual-range input[type=range]::-moz-range-thumb {
       pointer-events: all;
       appearance: none;
       width: 14px; height: 14px;
       border-radius: 50%;
-      background: #fc4c02;
+      background: #2563eb;
       cursor: pointer;
       border: 2px solid #fff;
-      box-shadow: 0 0 0 1.5px #fc4c02;
+      box-shadow: 0 0 0 1.5px #2563eb;
     }
     .filter-val {
       font-size: 0.75rem;
@@ -142,18 +142,99 @@
       user-select: none;
       white-space: nowrap;
     }
-    .toggle input { accent-color: #fc4c02; cursor: pointer; }
+    .toggle input { accent-color: #2563eb; cursor: pointer; }
     #status {
       margin-left: auto;
       font-size: 0.75rem;
       color: #999;
       white-space: nowrap;
     }
-    #status.loading { color: #fc4c02; }
+    #status.loading { color: #2563eb; }
     #status.error { color: #c0392b; }
+    /* climb count doubles as the results-panel toggle */
+    #status.has-list { cursor: pointer; color: #2563eb; }
+    #status.has-list:hover { text-decoration: underline; }
+    #status.has-list::after { content: ' ▸'; font-size: 0.7rem; }
+    #status.has-list.open::after { content: ' ▾'; }
 
-    /* ── map ── */
+    /* ── map + results panel ── */
+    #map-area { position: relative; flex: 1; display: flex; overflow: hidden; }
     #map { flex: 1; }
+
+    #results-panel {
+      position: absolute;
+      top: 0; right: 0; bottom: 0;
+      width: 330px;
+      max-width: 85%;
+      background: #fff;
+      border-left: 1px solid #ddd;
+      box-shadow: -2px 0 10px rgba(0,0,0,0.10);
+      transform: translateX(100%);
+      transition: transform 0.25s ease;
+      z-index: 1100;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    #results-panel.open { transform: translateX(0); }
+    .rp-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 14px;
+      border-bottom: 1px solid #eee;
+      flex-shrink: 0;
+    }
+    .rp-title { font-size: 0.85rem; font-weight: bold; color: #222; }
+    #rp-close {
+      border: none;
+      background: none;
+      font-family: monospace;
+      font-size: 0.95rem;
+      color: #888;
+      cursor: pointer;
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+    #rp-close:hover { background: #f4f4f4; color: #222; }
+
+    #results-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding: 12px 14px;
+      overflow-y: auto;
+    }
+    #results-list .result-card {
+      background: #fff;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      padding: 10px 12px;
+      cursor: pointer;
+      transition: border-color 0.1s, box-shadow 0.1s;
+    }
+    #results-list .result-card:hover { border-color: #2563eb; box-shadow: 0 1px 4px rgba(37, 99, 235, 0.18); }
+    #results-list .result-header { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+    #results-list .result-name {
+      font-size: 0.9rem;
+      font-weight: bold;
+      color: #2563eb;
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+    #results-list .result-name::after { content: ' →'; font-weight: normal; }
+    #results-list .result-meta { font-size: 0.78rem; color: #666; margin-top: 4px; }
+    #results-list .surface-tag {
+      font-size: 0.7rem;
+      padding: 2px 6px;
+      border-radius: 3px;
+      flex-shrink: 0;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    #results-list .surface-paved { background: #eef; color: #335; }
+    #results-list .surface-unpaved { background: #f5ecdf; color: #7a4a1c; }
+    #results-list .no-results { font-size: 0.85rem; color: #888; }
 
     /* ── climb tooltip ── */
     .climb-tip {
@@ -169,7 +250,7 @@
       pointer-events: none;
     }
     .climb-tip::before { display: none; }
-    .climb-tip b { color: #fc4c02; font-size: 0.85rem; }
+    .climb-tip b { color: #2563eb; font-size: 0.85rem; }
     .climb-tip .tip-tags { display: flex; gap: 4px; margin-top: 4px; }
     .climb-tip .tag {
       font-size: 0.68rem;
@@ -182,6 +263,30 @@
     .climb-tip .tag-unpaved { background: #f5ecdf; color: #7a4a1c; }
     .climb-tip .tag-bidi { background: #e7f4ea; color: #2d6a3a; }
     .climb-tip .tag-oneway { background: #f4ece7; color: #6a3a2d; }
+    /* divider between stacked climbs in a shared-segment tooltip */
+    .climb-tip .tip-div { height: 1px; background: #e5e5e5; margin: 6px -2px; }
+
+    /* ── climb selection popup (overlapping climbs) ── */
+    .climb-select-popup .leaflet-popup-content { margin: 10px 12px; }
+    .climb-select { font-family: monospace; font-size: 0.78rem; min-width: 190px; }
+    .climb-select .cs-head {
+      font-size: 0.68rem;
+      color: #888;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-bottom: 6px;
+    }
+    .climb-select .cs-item {
+      display: block;
+      padding: 6px 8px;
+      border-radius: 4px;
+      text-decoration: none;
+      color: #222;
+      border: 1px solid transparent;
+    }
+    .climb-select .cs-item:hover { background: #eef2ff; border-color: #c7d2fe; }
+    .climb-select .cs-name { display: block; color: #2563eb; font-weight: bold; }
+    .climb-select .cs-meta { display: block; font-size: 0.72rem; color: #666; margin-top: 2px; }
   </style>
 </head>
 <body>
@@ -219,7 +324,16 @@
   <span id="status"></span>
 </div>
 
-<div id="map"></div>
+<div id="map-area">
+  <div id="map"></div>
+  <aside id="results-panel">
+    <div class="rp-head">
+      <span class="rp-title"><span id="panel-count">0</span> climbs</span>
+      <button id="rp-close" title="close">✕</button>
+    </div>
+    <div id="results-list"></div>
+  </aside>
+</div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
@@ -231,6 +345,7 @@
 
   const statusEl = document.getElementById('status');
   let climbLayers = [];
+  let climbEntries = [];   // { climb, line, pts } for hit-testing overlaps
   let fetchTimer = null;
   let activeController = null;
 
@@ -252,6 +367,8 @@
   function clearClimbs() {
     climbLayers.forEach(l => l.remove());
     climbLayers = [];
+    climbEntries = [];
+    highlighted = [];
   }
 
   function renderClimbs(climbs) {
@@ -259,40 +376,178 @@
     for (const c of climbs) {
       if (c.polyline) {
         const pts = decodePolyline(c.polyline);
+        // lines are non-interactive: hover/click are handled centrally on the
+        // map so we can detect several climbs sharing the same road segment.
         const line = L.polyline(pts, {
-          color: '#fc4c02',
+          color: '#2563eb',
           weight: 3,
           opacity: 0.75,
+          interactive: false,
+          dashArray: c.is_paved ? null : '3 7',   // unpaved → dotted line
         }).addTo(map);
-        line.bindTooltip(
-          `<b>${c.name}</b><br>${(c.distance_m / 1000).toFixed(2)} km · ${c.average_grade.toFixed(1)}% · ${Math.trunc(c.score)} score`,
-          { sticky: true, className: 'climb-tip' }
-        );
-        line.on('click', () => { saveState(); window.location.href = `/climb/${c.id}?from=explore`; });
         climbLayers.push(line);
+        climbEntries.push({ climb: c, line, pts });
       }
-      const surfaceLabel = c.is_paved ? 'paved' : 'unpaved';
-      const dirLabel = c.bidirectional ? 'bidirectional' : 'one-way';
+      // start markers are purely visual; interaction goes through the map.
       const dot = L.circleMarker([c.start_lat, c.start_lng], {
         radius: 6,
         color: '#fff',
-        fillColor: '#fc4c02',
+        fillColor: '#2563eb',
         fillOpacity: 1,
         weight: 2,
+        interactive: false,
       }).addTo(map);
-      dot.bindTooltip(
-        `<b>${c.name}</b><br>` +
-        `${(c.distance_m / 1000).toFixed(2)} km &nbsp;·&nbsp; ${c.average_grade.toFixed(1)}% &nbsp;·&nbsp; ${Math.trunc(c.score)} score` +
-        `<div class="tip-tags">` +
-        `<span class="tag tag-${surfaceLabel}">${surfaceLabel}</span>` +
-        `<span class="tag tag-${c.bidirectional ? 'bidi' : 'oneway'}">${dirLabel}</span>` +
-        `</div>`,
-        { direction: 'top', offset: [0, -8], className: 'climb-tip' }
-      );
-      dot.on('click', () => { saveState(); window.location.href = `/climb/${c.id}?from=explore`; });
       climbLayers.push(dot);
     }
+    renderResultList(climbs);
   }
+
+  // ── results panel (slide-out list) ──────────────────────────────────────
+  const panel = document.getElementById('results-panel');
+
+  function togglePanel(force) {
+    const open = force != null ? force : !panel.classList.contains('open');
+    panel.classList.toggle('open', open);
+    statusEl.classList.toggle('open', open);
+  }
+  document.getElementById('rp-close').addEventListener('click', () => togglePanel(false));
+  statusEl.addEventListener('click', () => { if (statusEl.classList.contains('has-list')) togglePanel(); });
+
+  function renderResultList(climbs) {
+    document.getElementById('panel-count').textContent = climbs.length;
+    const listEl = document.getElementById('results-list');
+    if (!climbs.length) {
+      listEl.innerHTML = '<p class="no-results">No climbs in this area.</p>';
+      return;
+    }
+    listEl.innerHTML = climbs.map(c => {
+      const surf = c.is_paved ? 'paved' : 'unpaved';
+      return `
+      <div class="result-card" data-id="${c.id}">
+        <div class="result-header">
+          <a class="result-name" href="/climb/${c.id}?from=explore">${c.name}</a>
+          <span class="surface-tag surface-${surf}">${surf}</span>
+        </div>
+        <div class="result-meta">
+          ${(c.distance_m / 1000).toFixed(2)} km &nbsp;·&nbsp;
+          ${c.average_grade.toFixed(1)}% &nbsp;·&nbsp;
+          ${Math.trunc(c.score)} score
+        </div>
+      </div>`;
+    }).join('');
+
+    listEl.querySelectorAll('.result-card').forEach(card => {
+      const id = card.dataset.id;
+      const entry = climbEntries.find(e => e.climb.id === id);
+      card.addEventListener('click', e => { e.preventDefault(); goToClimb(id); });
+      card.addEventListener('mouseenter', () => { if (entry) setHighlight([entry]); });
+      card.addEventListener('mouseleave', () => setHighlight([]));
+    });
+  }
+
+  // ── overlap-aware hover & selection ─────────────────────────────────────
+  const HIT_TOL = 8;                 // px tolerance for "cursor is on a climb"
+  let highlighted = [];              // entries currently emphasised
+  let selectionOpen = false;         // freeze hover while a picker is open
+
+  const hoverTip = L.tooltip({ className: 'climb-tip', direction: 'top', offset: [0, -6] });
+
+  function distToSeg(p, a, b) {
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const l2 = dx * dx + dy * dy;
+    if (l2 === 0) return Math.hypot(p.x - a.x, p.y - a.y);
+    let t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / l2;
+    t = Math.max(0, Math.min(1, t));
+    return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy));
+  }
+
+  function climbsNear(latlng) {
+    const p = map.latLngToLayerPoint(latlng);
+    const hits = [];
+    for (const e of climbEntries) {
+      let min = Infinity, prev = null;
+      for (const ll of e.pts) {
+        const cur = map.latLngToLayerPoint(ll);
+        if (prev) min = Math.min(min, distToSeg(p, prev, cur));
+        prev = cur;
+      }
+      if (min <= HIT_TOL) hits.push(e);
+    }
+    return hits;
+  }
+
+  function setHighlight(entries) {
+    for (const e of highlighted) {
+      if (!entries.includes(e)) e.line.setStyle({ weight: 3, opacity: 0.75 });
+    }
+    for (const e of entries) e.line.setStyle({ weight: 5, opacity: 1 });
+    highlighted = entries;
+  }
+
+  function tipRow(c) {
+    const surf = c.is_paved ? 'paved' : 'unpaved';
+    const dir = c.bidirectional ? 'bidi' : 'oneway';
+    const dirLabel = c.bidirectional ? 'bidirectional' : 'one-way';
+    return `<b>${c.name}</b><br>` +
+      `${(c.distance_m / 1000).toFixed(2)} km &nbsp;·&nbsp; ${c.average_grade.toFixed(1)}% &nbsp;·&nbsp; ${Math.trunc(c.score)} score` +
+      `<div class="tip-tags">` +
+      `<span class="tag tag-${surf}">${surf}</span>` +
+      `<span class="tag tag-${dir}">${dirLabel}</span>` +
+      `</div>`;
+  }
+
+  function goToClimb(id) { saveState(); window.location.href = `/climb/${id}?from=explore`; }
+
+  map.on('mousemove', (e) => {
+    if (selectionOpen) return;       // hover frozen while picking
+    const hits = climbsNear(e.latlng);
+    if (!hits.length) {
+      setHighlight([]);
+      if (map.hasLayer(hoverTip)) hoverTip.remove();
+      map.getContainer().style.cursor = '';
+      return;
+    }
+    setHighlight(hits);
+    map.getContainer().style.cursor = 'pointer';
+    hoverTip
+      .setLatLng(e.latlng)
+      .setContent(hits.map(h => tipRow(h.climb)).join('<div class="tip-div"></div>'));
+    if (!map.hasLayer(hoverTip)) hoverTip.addTo(map);
+  });
+
+  map.on('click', (e) => {
+    if (selectionOpen) return;
+    const hits = climbsNear(e.latlng);
+    if (!hits.length) return;
+    if (hits.length === 1) { goToClimb(hits[0].climb.id); return; }
+
+    // overlapping climbs: freeze the hover and let the user pick one.
+    if (map.hasLayer(hoverTip)) hoverTip.remove();
+
+    const box = document.createElement('div');
+    box.className = 'climb-select';
+    box.innerHTML = `<div class="cs-head">${hits.length} climbs here</div>`;
+    for (const h of hits) {
+      const surf = h.climb.is_paved ? 'paved' : 'unpaved';
+      const a = document.createElement('a');
+      a.className = 'cs-item';
+      a.href = `/climb/${h.climb.id}?from=explore`;
+      a.innerHTML =
+        `<span class="cs-name">${h.climb.name}</span>` +
+        `<span class="cs-meta">${(h.climb.distance_m / 1000).toFixed(2)} km · ` +
+        `${h.climb.average_grade.toFixed(1)}% · ${surf}</span>`;
+      a.addEventListener('click', (ev) => { ev.preventDefault(); goToClimb(h.climb.id); });
+      a.addEventListener('mouseenter', () => setHighlight([h]));
+      box.appendChild(a);
+    }
+    box.addEventListener('mouseleave', () => setHighlight(hits));
+
+    selectionOpen = true;
+    setHighlight(hits);
+    L.popup({ className: 'climb-select-popup', autoClose: true })
+      .setLatLng(e.latlng).setContent(box).openOn(map);
+    map.once('popupclose', () => { selectionOpen = false; setHighlight([]); });
+  });
 
   const GRADE_MAX = 25;
 
@@ -364,7 +619,8 @@
       if (!res.ok) throw new Error('request failed');
       const climbs = await res.json();
       renderClimbs(climbs);
-      statusEl.className = '';
+      statusEl.className = climbs.length ? 'has-list' : '';
+      if (panel.classList.contains('open')) statusEl.classList.add('open');
       statusEl.textContent = climbs.length ? `${climbs.length} climb${climbs.length === 1 ? '' : 's'}` : 'no climbs here';
     } catch (e) {
       if (e.name === 'AbortError') return;
@@ -405,15 +661,30 @@
     updateGradeSlider();
   }
 
+  // shared map position, kept in sync across the Search ↔ Explore tabs
+  const MAP_VIEW_KEY = 'intfnd:mapView';
+  function saveMapView() {
+    const c = map.getCenter();
+    sessionStorage.setItem(MAP_VIEW_KEY, JSON.stringify({ lat: c.lat, lng: c.lng, zoom: map.getZoom() }));
+  }
+  const sharedView = (() => {
+    try { return JSON.parse(sessionStorage.getItem(MAP_VIEW_KEY)); } catch { return null; }
+  })();
+
   map.on('moveend', scheduleFetch);
   map.on('zoomend', scheduleFetch);
+  map.on('moveend', saveMapView);
+  map.on('zoomend', saveMapView);
 
   const savedExplore = (() => {
     try { return JSON.parse(sessionStorage.getItem(EXPLORE_KEY)); } catch { return null; }
   })();
 
-  if (savedExplore) {
-    restoreFilters(savedExplore);
+  if (savedExplore) restoreFilters(savedExplore);
+
+  if (sharedView) {
+    map.setView([sharedView.lat, sharedView.lng], sharedView.zoom);
+  } else if (savedExplore) {
     map.setView([savedExplore.lat, savedExplore.lng], savedExplore.zoom);
   } else if (navigator.geolocation) {
     navigator.geolocation.getCurrentPosition(
