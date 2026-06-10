@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>intfnd · predictor</title>
+  <link rel="icon" type="image/png" href="/icon.png">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: monospace;
+      background: #f0f0f0;
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+    }
+
+    /* ── header ── */
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 20px;
+      height: 52px;
+      background: #fff;
+      border-bottom: 1px solid #ddd;
+      flex-shrink: 0;
+    }
+    .logo { display: flex; align-items: center; gap: 8px; font-size: 1.1rem; font-weight: bold; color: #222; text-decoration: none; }
+    .logo img { width: 24px; height: 24px; }
+    nav.tabs { display: flex; gap: 4px; }
+    nav.tabs a {
+      padding: 6px 14px;
+      font-size: 0.85rem;
+      color: #555;
+      text-decoration: none;
+      border-radius: 4px;
+    }
+    nav.tabs a:hover { background: #f4f4f4; color: #222; }
+    nav.tabs a.active { background: #2563eb; color: #fff; }
+
+    /* ── main ── */
+    main {
+      flex: 1;
+      display: flex;
+      justify-content: center;
+      padding: 24px 16px;
+    }
+    .page {
+      width: 100%;
+      max-width: 560px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .page-title { font-size: 1.2rem; font-weight: bold; color: #222; }
+    .page-intro { font-size: 0.8rem; color: #777; line-height: 1.5; }
+
+    .card {
+      background: #fff;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      padding: 16px 16px 18px;
+    }
+    .card-label {
+      font-size: 0.72rem;
+      color: #888;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-bottom: 12px;
+      display: block;
+    }
+
+    /* ── performance predictor ── */
+    .predictor { display: flex; flex-direction: column; gap: 10px; }
+    .pred-controls { display: flex; flex-direction: column; gap: 12px; }
+    .pred-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .pred-row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+    .pred-field { display: flex; flex-direction: column; gap: 3px; }
+    .pred-field > label { font-size: 0.72rem; color: #888; }
+    .pred-field input[type="number"], .pred-field select {
+      font-family: monospace;
+      font-size: 0.82rem;
+      padding: 5px 6px;
+      border: 1px solid #ddd;
+      border-radius: 3px;
+      background: #fafafa;
+      color: #222;
+      width: 100%;
+    }
+    .pred-field input[type="range"] { width: 100%; accent-color: #2563eb; margin: 2px 0; }
+    .pred-note { font-size: 0.68rem; color: #aaa; font-style: italic; }
+    .pred-num { color: #2563eb; font-weight: bold; }
+
+    .bike-toggle { display: flex; }
+    .bike-toggle button {
+      flex: 1;
+      font-family: monospace;
+      font-size: 0.78rem;
+      padding: 5px 8px;
+      border: 1px solid #ddd;
+      background: #fafafa;
+      color: #555;
+      cursor: pointer;
+    }
+    .bike-toggle button:first-child { border-radius: 3px 0 0 3px; }
+    .bike-toggle button:last-child { border-radius: 0 3px 3px 0; border-left: none; }
+    .bike-toggle button.active { background: #2563eb; color: #fff; border-color: #2563eb; }
+
+    .pred-results {
+      margin-top: 4px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .pred-headline { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+    .pred-big { display: flex; flex-direction: column; gap: 2px; }
+    .pred-big-label { font-size: 0.68rem; color: #888; text-transform: uppercase; letter-spacing: 0.04em; }
+    .pred-big-value { font-size: 1.1rem; color: #222; font-weight: bold; }
+    .pred-breakdown { display: flex; flex-direction: column; gap: 6px; }
+    .pred-breakdown-label { font-size: 0.7rem; color: #888; text-transform: uppercase; letter-spacing: 0.04em; }
+    .pbar-row { display: flex; align-items: center; gap: 8px; font-size: 0.72rem; }
+    .pbar-name { width: 76px; color: #555; }
+    .pbar-track { flex: 1; height: 8px; background: #f0f0f0; border-radius: 4px; overflow: hidden; }
+    .pbar-fill { display: block; height: 100%; border-radius: 4px; }
+    .pbar-val { width: 96px; text-align: right; color: #444; font-variant-numeric: tabular-nums; }
+  </style>
+</head>
+<body>
+
+<header>
+  <a href="/" class="logo"><img src="/icon.png" alt="">intfnd</a>
+  <nav class="tabs">
+    <a href="/">Search</a>
+    <a href="/explore">Explore</a>
+    <a href="/predictor" class="active">Predictor</a>
+    <a href="/about">About</a>
+  </nav>
+</header>
+
+<main>
+  <div class="page">
+    <div>
+      <div class="page-title">performance predictor</div>
+      <p class="page-intro">Estimate climb time and power split for any climb. Enter the climb's length, average grade and start elevation, then tune rider and conditions below.</p>
+    </div>
+
+    <div class="card">
+      <span class="card-label">climb</span>
+      <div class="pred-row-3">
+        <div class="pred-field">
+          <label>length (km)</label>
+          <input type="number" id="p-length" min="0.1" max="100" step="0.1" value="5">
+        </div>
+        <div class="pred-field">
+          <label>average grade (%)</label>
+          <input type="number" id="p-grade" min="-30" max="40" step="0.1" value="7">
+        </div>
+        <div class="pred-field">
+          <label>start elevation (m)</label>
+          <input type="number" id="p-elev" min="-400" max="6000" step="10" value="0">
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <span class="card-label">rider &amp; conditions</span>
+      <div id="predictor"></div>
+    </div>
+  </div>
+</main>
+
+<script>
+  /* ── performance predictor ──
+     Mirrors src/physics.rs: three-force model solved for v via Newton's method.
+     η (drivetrain) and g are held constant; ρ derives from temperature AND start
+     elevation (altitude lowers pressure → thinner air), Crr and CdA are
+     user-controlled. Keep the constants in sync with physics.rs. */
+  const G = 9.81;          // m/s²
+  const ETA = 0.95;        // drivetrain efficiency
+  const R_AIR = 287.05;    // specific gas constant for dry air, J/(kg·K)
+  const P_SEA = 101325;    // sea-level standard pressure, Pa
+  const T_SEA = 288.15;    // sea-level standard temperature, K
+  const L_RATE = 0.0065;   // temperature lapse rate, K/m
+  const G_MOL = 0.0289644; // molar mass of dry air, kg/mol
+  const R_UNIV = 8.31446;  // universal gas constant, J/(mol·K)
+
+  // Pressure at a given altitude via the barometric formula (ISA troposphere).
+  function pressureAt(altitude_m) {
+    return P_SEA * Math.pow(1 - (L_RATE * altitude_m) / T_SEA, (G * G_MOL) / (R_UNIV * L_RATE));
+  }
+
+  // Air density from local temperature and pressure (pressure set by altitude).
+  function airDensity(tempC, altitude_m) {
+    return pressureAt(altitude_m) / (R_AIR * (tempC + 273.15));
+  }
+
+  // Returns { time, v, p_eff, p_gravity, p_rolling, p_aero } or null if it doesn't converge.
+  function predict(distance_m, grade_pct, weight_kg, power_w, crr, cda, rho) {
+    if (power_w <= 0 || distance_m <= 0) return null;
+    const grade = grade_pct / 100;
+    const p_eff = power_w * ETA;
+    const f_gravity = weight_kg * G * grade;
+    const f_rolling = weight_kg * G * crr;
+    const f_const = f_gravity + f_rolling;
+
+    let v = Math.min(30, Math.max(0.1, f_const > 0 ? p_eff / f_const : 5));
+    for (let i = 0; i < 64; i++) {
+      const f_aero = 0.5 * rho * cda * v * v;
+      const fv = (f_const + f_aero) * v - p_eff;
+      const dfv = f_const + 3 * 0.5 * rho * cda * v * v;
+      if (Math.abs(dfv) < 1e-12) break;
+      const delta = fv / dfv;
+      v = Math.max(0.01, v - delta);
+      if (Math.abs(delta) < 1e-9) break;
+    }
+    const f_aero_final = 0.5 * rho * cda * v * v;
+    if (Math.abs((f_const + f_aero_final) * v - p_eff) > 1.0) return null;
+
+    return {
+      time: distance_m / v,
+      v,
+      p_eff,
+      p_gravity: f_gravity * v,
+      p_rolling: f_rolling * v,
+      p_aero: f_aero_final * v,
+    };
+  }
+
+  function formatDuration(s) {
+    s = Math.round(s);
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const sec = s % 60;
+    if (h > 0) return `${h}:${m.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`;
+    return `${m}:${sec.toString().padStart(2, '0')}`;
+  }
+
+  // Crr presets mirror Strava Sauce. The road/mtb columns match Sauce's anchors
+  // exactly for asphalt (0.004/0.0065), gravel (0.006/0.0075), grass (0.007/0.009),
+  // off-road (0.02/0.0255) and sand (0.03/0.038); the extra surfaces are interpolated.
+  const SURFACES = [
+    { key: 'asphalt_smooth', label: 'asphalt — smooth', crr: 0.0040, crrMtb: 0.0065 },
+    { key: 'asphalt_worn',   label: 'asphalt — worn',   crr: 0.0045, crrMtb: 0.0068 },
+    { key: 'concrete',       label: 'concrete',         crr: 0.0050, crrMtb: 0.0070 },
+    { key: 'chipseal',       label: 'chipseal / rough', crr: 0.0055, crrMtb: 0.0072 },
+    { key: 'gravel_compact', label: 'gravel — compact', crr: 0.0060, crrMtb: 0.0075 },
+    { key: 'grass',          label: 'grass — firm',     crr: 0.0070, crrMtb: 0.0090 },
+    { key: 'paving_stones',  label: 'paving stones',    crr: 0.0110, crrMtb: 0.0130 },
+    { key: 'cobblestone',    label: 'cobblestone',      crr: 0.0150, crrMtb: 0.0170 },
+    { key: 'gravel_loose',   label: 'gravel — loose',   crr: 0.0170, crrMtb: 0.0210 },
+    { key: 'dirt',           label: 'off-road / dirt',  crr: 0.0200, crrMtb: 0.0255 },
+    { key: 'sand',           label: 'sand / mud',       crr: 0.0300, crrMtb: 0.0380 },
+  ];
+
+  const BIKES = {
+    road: { cda: 0.32 },
+    mtb:  { cda: 0.45 },
+  };
+
+  function cdaNote(v) {
+    if (v <= 0.20) return 'elite time trial — full aero tuck';
+    if (v <= 0.27) return 'time trial / triathlon bars';
+    if (v <= 0.34) return 'racing, on the drops';
+    if (v <= 0.42) return 'road, on the hoods';
+    if (v <= 0.52) return 'MTB / gravel, semi-upright';
+    return 'upright casual / commuter';
+  }
+
+  function renderPredictor() {
+    const surf = SURFACES[0];
+
+    document.getElementById('predictor').innerHTML = `
+      <div class="predictor">
+        <div class="pred-controls">
+          <div class="pred-field">
+            <label>bike</label>
+            <div class="bike-toggle" id="p-bike">
+              <button type="button" data-bike="road" class="active">Road</button>
+              <button type="button" data-bike="mtb">MTB</button>
+            </div>
+          </div>
+          <div class="pred-row">
+            <div class="pred-field">
+              <label>weight — rider + bike (kg)</label>
+              <input type="number" id="p-weight" min="30" max="200" step="0.5" value="78">
+            </div>
+            <div class="pred-field">
+              <label>power (W)</label>
+              <input type="number" id="p-power" min="50" max="800" step="5" value="250">
+            </div>
+          </div>
+          <div class="pred-row">
+            <div class="pred-field">
+              <label>surface</label>
+              <select id="p-surface">
+                ${SURFACES.map(s => `<option value="${s.key}" ${s.key === surf.key ? 'selected' : ''}>${s.label}</option>`).join('')}
+              </select>
+            </div>
+            <div class="pred-field">
+              <label>rolling resistance — Crr</label>
+              <input type="number" id="p-crr" min="0.002" max="0.05" step="0.0005" value="${surf.crr.toFixed(4)}">
+            </div>
+          </div>
+          <div class="pred-field">
+            <label>aerodynamics — CdA <span class="pred-num" id="p-cda-val">0.32</span> m²</label>
+            <input type="range" id="p-cda" min="0.15" max="0.7" step="0.01" value="0.32">
+            <span class="pred-note" id="p-cda-note">${cdaNote(0.32)}</span>
+          </div>
+          <div class="pred-field">
+            <label>temperature <span class="pred-num" id="p-temp-val">15</span> °C → air density ρ <span class="pred-num" id="p-rho-val">1.225</span> kg/m³</label>
+            <input type="range" id="p-temp" min="-10" max="40" step="1" value="15">
+            <span class="pred-note" id="p-rho-note"></span>
+          </div>
+        </div>
+        <div class="pred-results" id="pred-results"></div>
+      </div>
+    `;
+
+    const recompute = () => {
+      const lengthKm = parseFloat(document.getElementById('p-length').value);
+      const grade = parseFloat(document.getElementById('p-grade').value);
+      const elev = parseFloat(document.getElementById('p-elev').value);
+      const weight = parseFloat(document.getElementById('p-weight').value);
+      const power = parseFloat(document.getElementById('p-power').value);
+      const crr = parseFloat(document.getElementById('p-crr').value);
+      const cda = parseFloat(document.getElementById('p-cda').value);
+      const tempC = parseFloat(document.getElementById('p-temp').value);
+      const altitude = Number.isFinite(elev) ? elev : 0;
+      const rho = airDensity(tempC, altitude);
+
+      document.getElementById('p-cda-val').textContent = cda.toFixed(2);
+      document.getElementById('p-cda-note').textContent = cdaNote(cda);
+      document.getElementById('p-temp-val').textContent = tempC.toFixed(0);
+      document.getElementById('p-rho-val').textContent = rho.toFixed(3);
+      document.getElementById('p-rho-note').textContent =
+        `${(pressureAt(altitude) / 100).toFixed(0)} hPa at ${altitude.toFixed(0)} m`;
+
+      const out = document.getElementById('pred-results');
+      if (!Number.isFinite(lengthKm) || !Number.isFinite(grade) || lengthKm <= 0) {
+        out.innerHTML = '<p class="pred-note">enter climb length and grade.</p>';
+        return;
+      }
+      if (!Number.isFinite(weight) || !Number.isFinite(power) || !Number.isFinite(crr) || weight <= 0 || power <= 0) {
+        out.innerHTML = '<p class="pred-note">enter weight, power and Crr.</p>';
+        return;
+      }
+      const res = predict(lengthKm * 1000, grade, weight, power, crr, cda, rho);
+      if (!res) {
+        out.innerHTML = '<p class="pred-note">model does not converge for these inputs.</p>';
+        return;
+      }
+
+      const drivetrain = power - res.p_eff;
+      const parts = [
+        { name: 'gravity', w: res.p_gravity, color: '#2563eb' },
+        { name: 'rolling', w: res.p_rolling, color: '#e08a2b' },
+        { name: 'aero', w: res.p_aero, color: '#14a06a' },
+        { name: 'drivetrain', w: drivetrain, color: '#aaa' },
+      ];
+      const bars = parts.map(p => {
+        const pct = power > 0 ? Math.max(0, p.w) / power * 100 : 0;
+        return `
+          <div class="pbar-row">
+            <span class="pbar-name">${p.name}</span>
+            <span class="pbar-track"><span class="pbar-fill" style="width:${pct.toFixed(1)}%;background:${p.color}"></span></span>
+            <span class="pbar-val">${p.w.toFixed(0)} W · ${pct.toFixed(0)}%</span>
+          </div>`;
+      }).join('');
+
+      out.innerHTML = `
+        <div class="pred-headline">
+          <div class="pred-big">
+            <span class="pred-big-label">time</span>
+            <span class="pred-big-value">${formatDuration(res.time)}</span>
+          </div>
+          <div class="pred-big">
+            <span class="pred-big-label">speed</span>
+            <span class="pred-big-value">${(res.v * 3.6).toFixed(1)} km/h</span>
+          </div>
+          <div class="pred-big">
+            <span class="pred-big-label">power-to-weight</span>
+            <span class="pred-big-value">${(power / weight).toFixed(2)} W/kg</span>
+          </div>
+        </div>
+        <div class="pred-breakdown">
+          <span class="pred-breakdown-label">power breakdown (share of ${power.toFixed(0)} W at the pedals)</span>
+          ${bars}
+        </div>
+      `;
+    };
+
+    // recompute Crr from the surface preset scaled by the selected bike's tyre factor
+    const currentBike = () => {
+      const btn = document.querySelector('#p-bike button.active');
+      return btn ? btn.dataset.bike : 'road';
+    };
+    const applyCrr = () => {
+      const s = SURFACES.find(x => x.key === document.getElementById('p-surface').value);
+      if (!s) return;
+      const crr = currentBike() === 'mtb' ? s.crrMtb : s.crr;
+      document.getElementById('p-crr').value = crr.toFixed(4);
+    };
+
+    // surface preset overwrites Crr; manual Crr edits are then free to diverge
+    document.getElementById('p-surface').addEventListener('change', () => {
+      applyCrr();
+      recompute();
+    });
+    document.getElementById('p-bike').addEventListener('click', (e) => {
+      const btn = e.target.closest('button[data-bike]');
+      if (!btn) return;
+      document.querySelectorAll('#p-bike button').forEach(b => b.classList.toggle('active', b === btn));
+      document.getElementById('p-cda').value = BIKES[btn.dataset.bike].cda;
+      applyCrr();
+      recompute();
+    });
+    ['p-length', 'p-grade', 'p-elev', 'p-weight', 'p-power', 'p-crr', 'p-cda', 'p-temp'].forEach(id => {
+      document.getElementById(id).addEventListener('input', recompute);
+    });
+
+    recompute();
+  }
+
+  renderPredictor();
+</script>
+</body>
+</html>

@@ -195,6 +195,7 @@
   <nav class="tabs">
     <a href="/" class="active">Search</a>
     <a href="/explore">Explore</a>
+    <a href="/predictor">Predictor</a>
     <a href="/about">About</a>
   </nav>
 </header>
@@ -389,6 +390,17 @@
     return `${m}:${sec.toString().padStart(2, '0')}`;
   }
 
+  // carry the current weight/power into the climb page so its predictor prefills
+  function climbUrl(id) {
+    const qs = new URLSearchParams();
+    const w = document.getElementById('weight').value;
+    const p = document.getElementById('power').value;
+    if (parseFloat(w) > 0) qs.set('weight', w);
+    if (parseFloat(p) > 0) qs.set('power', p);
+    const q = qs.toString();
+    return `/climb/${id}${q ? '?' + q : ''}`;
+  }
+
   let lastResults = [];
 
   function renderResults() {
@@ -417,7 +429,7 @@
       return `
       <div class="result-card" data-idx="${i}" data-id="${s.id}">
         <div class="result-header">
-          <a class="result-name" href="/climb/${s.id}">${s.name}</a>
+          <a class="result-name" href="${climbUrl(s.id)}">${s.name}</a>
           <span class="surface-tag surface-${surfaceLabel}">${surfaceLabel}</span>
         </div>
         <div class="result-meta">
@@ -440,7 +452,7 @@
       const s = filtered[+card.dataset.idx];
       card.addEventListener('click', e => {
         if (e.target.closest('a')) return;
-        window.location.href = `/climb/${card.dataset.id}`;
+        window.location.href = climbUrl(card.dataset.id);
       });
       card.addEventListener('mouseenter', () => {
         clearHover();

@@ -39,6 +39,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/", get(routes::pages::index))
         .route("/about", get(routes::pages::about))
         .route("/explore", get(routes::pages::explore))
+        .route("/predictor", get(routes::pages::predictor))
         .route("/climb/{id}", get(routes::pages::climb))
         .route("/icon.png", get(routes::pages::icon))
         .route("/api/search", post(routes::search::search))

@@ -68,6 +68,17 @@
       background: #fafafa;
     }
     .filter-group input[type=number]:focus { outline: none; border-color: #2563eb; background: #fff; }
+    .filter-group select {
+      padding: 4px 6px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 0.8rem;
+      background: #fafafa;
+      color: #444;
+      cursor: pointer;
+    }
+    .filter-group select:focus { outline: none; border-color: #2563eb; background: #fff; }
 
     /* dual-range grade slider */
     .dual-range {
@@ -151,32 +162,22 @@
     }
     #status.loading { color: #2563eb; }
     #status.error { color: #c0392b; }
-    /* climb count doubles as the results-panel toggle */
-    #status.has-list { cursor: pointer; color: #2563eb; }
-    #status.has-list:hover { text-decoration: underline; }
-    #status.has-list::after { content: ' ▸'; font-size: 0.7rem; }
-    #status.has-list.open::after { content: ' ▾'; }
 
     /* ── map + results panel ── */
     #map-area { position: relative; flex: 1; display: flex; overflow: hidden; }
     #map { flex: 1; }
 
     #results-panel {
-      position: absolute;
-      top: 0; right: 0; bottom: 0;
+      position: relative;
       width: 330px;
-      max-width: 85%;
+      max-width: 45%;
+      flex-shrink: 0;
       background: #fff;
       border-left: 1px solid #ddd;
-      box-shadow: -2px 0 10px rgba(0,0,0,0.10);
-      transform: translateX(100%);
-      transition: transform 0.25s ease;
-      z-index: 1100;
       display: flex;
       flex-direction: column;
       overflow: hidden;
     }
-    #results-panel.open { transform: translateX(0); }
     .rp-head {
       display: flex;
       align-items: center;
@@ -186,17 +187,6 @@
       flex-shrink: 0;
     }
     .rp-title { font-size: 0.85rem; font-weight: bold; color: #222; }
-    #rp-close {
-      border: none;
-      background: none;
-      font-family: monospace;
-      font-size: 0.95rem;
-      color: #888;
-      cursor: pointer;
-      padding: 2px 6px;
-      border-radius: 4px;
-    }
-    #rp-close:hover { background: #f4f4f4; color: #222; }
 
     #results-list {
       display: flex;
@@ -235,6 +225,20 @@
     #results-list .surface-paved { background: #eef; color: #335; }
     #results-list .surface-unpaved { background: #f5ecdf; color: #7a4a1c; }
     #results-list .no-results { font-size: 0.85rem; color: #888; }
+
+    /* start-point star shown while a climb is hovered/highlighted */
+    .climb-star {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      line-height: 1;
+    }
+    .climb-star span {
+      font-size: 20px;
+      line-height: 1;
+      /* white halo so the star stays legible over any basemap */
+      text-shadow: 0 0 2px #fff, 0 0 2px #fff, 0 0 1px #fff;
+    }
 
     /* ── climb tooltip ── */
     .climb-tip {
@@ -296,6 +300,7 @@
   <nav class="tabs">
     <a href="/">Search</a>
     <a href="/explore" class="active">Explore</a>
+    <a href="/predictor">Predictor</a>
     <a href="/about">About</a>
   </nav>
 </header>
@@ -319,7 +324,14 @@
     <span class="filter-val" id="grade-val"></span>
   </div>
   <div class="filter-divider"></div>
-  <label class="toggle"><input id="paved-only" type="checkbox"> paved</label>
+  <div class="filter-group">
+    <span class="filter-label">surface</span>
+    <select id="surface">
+      <option value="all">all</option>
+      <option value="paved">paved</option>
+      <option value="unpaved">unpaved</option>
+    </select>
+  </div>
   <label class="toggle"><input id="bidirectional-only" type="checkbox"> bidi</label>
   <span id="status"></span>
 </div>
@@ -328,8 +340,7 @@
   <div id="map"></div>
   <aside id="results-panel">
     <div class="rp-head">
-      <span class="rp-title"><span id="panel-count">0</span> climbs</span>
-      <button id="rp-close" title="close">✕</button>
+      <span class="rp-title"><span id="panel-count">0</span> top climbs in this area</span>
     </div>
     <div id="results-list"></div>
   </aside>
@@ -366,6 +377,7 @@
 
   function clearClimbs() {
     climbLayers.forEach(l => l.remove());
+    climbEntries.forEach(e => { if (e.star) e.star.remove(); });
     climbLayers = [];
     climbEntries = [];
     highlighted = [];
@@ -374,6 +386,17 @@
   function renderClimbs(climbs) {
     clearClimbs();
     for (const c of climbs) {
+      // start markers are purely visual; interaction goes through the map.
+      const dot = L.circleMarker([c.start_lat, c.start_lng], {
+        radius: 6,
+        color: '#fff',
+        fillColor: '#2563eb',
+        fillOpacity: 1,
+        weight: 2,
+        interactive: false,
+      }).addTo(map);
+      climbLayers.push(dot);
+
       if (c.polyline) {
         const pts = decodePolyline(c.polyline);
         // lines are non-interactive: hover/click are handled centrally on the
@@ -386,33 +409,14 @@
           dashArray: c.is_paved ? null : '3 7',   // unpaved → dotted line
         }).addTo(map);
         climbLayers.push(line);
-        climbEntries.push({ climb: c, line, pts });
+        // dot is kept on the entry so hover can swap it for a star marker
+        climbEntries.push({ climb: c, line, pts, dot, star: null });
       }
-      // start markers are purely visual; interaction goes through the map.
-      const dot = L.circleMarker([c.start_lat, c.start_lng], {
-        radius: 6,
-        color: '#fff',
-        fillColor: '#2563eb',
-        fillOpacity: 1,
-        weight: 2,
-        interactive: false,
-      }).addTo(map);
-      climbLayers.push(dot);
     }
     renderResultList(climbs);
   }
 
-  // ── results panel (slide-out list) ──────────────────────────────────────
-  const panel = document.getElementById('results-panel');
-
-  function togglePanel(force) {
-    const open = force != null ? force : !panel.classList.contains('open');
-    panel.classList.toggle('open', open);
-    statusEl.classList.toggle('open', open);
-  }
-  document.getElementById('rp-close').addEventListener('click', () => togglePanel(false));
-  statusEl.addEventListener('click', () => { if (statusEl.classList.contains('has-list')) togglePanel(); });
-
+  // ── results panel (always-open list alongside the map) ──────────────────
   function renderResultList(climbs) {
     document.getElementById('panel-count').textContent = climbs.length;
     const listEl = document.getElementById('results-list');
@@ -440,7 +444,7 @@
       const id = card.dataset.id;
       const entry = climbEntries.find(e => e.climb.id === id);
       card.addEventListener('click', e => { e.preventDefault(); goToClimb(id); });
-      card.addEventListener('mouseenter', () => { if (entry) setHighlight([entry]); });
+      card.addEventListener('mouseenter', () => { if (entry) setHighlight([entry], HIGHLIGHT_COLOR); });
       card.addEventListener('mouseleave', () => setHighlight([]));
     });
   }
@@ -476,11 +480,47 @@
     return hits;
   }
 
-  function setHighlight(entries) {
-    for (const e of highlighted) {
-      if (!entries.includes(e)) e.line.setStyle({ weight: 3, opacity: 0.75 });
+  const HIGHLIGHT_COLOR = '#e11d48';   // crimson — high contrast on green/yellow OSM tiles
+
+  function starIcon(color) {
+    return L.divIcon({
+      className: 'climb-star',
+      html: `<span style="color:${color}">★</span>`,
+      iconSize: [22, 22],
+      iconAnchor: [11, 11],
+    });
+  }
+
+  // swap a climb's start dot for a star while it's highlighted
+  function showStar(e, color) {
+    if (map.hasLayer(e.dot)) e.dot.remove();
+    if (!e.star) {
+      e.star = L.marker(e.dot.getLatLng(), { icon: starIcon(color), interactive: false, keyboard: false }).addTo(map);
+    } else {
+      e.star.setIcon(starIcon(color));
+      if (!map.hasLayer(e.star)) e.star.addTo(map);
     }
-    for (const e of entries) e.line.setStyle({ weight: 5, opacity: 1 });
+  }
+
+  function hideStar(e) {
+    if (e.star && map.hasLayer(e.star)) e.star.remove();
+    if (!map.hasLayer(e.dot)) e.dot.addTo(map);
+  }
+
+  function setHighlight(entries, color) {
+    // star is always the gold accent so the start visibly changes colour + shape
+    const starColor = color || HIGHLIGHT_COLOR;
+    for (const e of highlighted) {
+      if (!entries.includes(e)) {
+        e.line.setStyle({ weight: 3, opacity: 0.75, color: '#2563eb' });
+        hideStar(e);
+      }
+    }
+    for (const e of entries) {
+      e.line.setStyle({ weight: 5, opacity: 1, color: color || '#2563eb' });
+      e.line.bringToFront();   // draw on top so it isn't hidden by overlapping climbs
+      showStar(e, starColor);
+    }
     highlighted = entries;
   }
 
@@ -537,7 +577,7 @@
         `<span class="cs-meta">${(h.climb.distance_m / 1000).toFixed(2)} km · ` +
         `${h.climb.average_grade.toFixed(1)}% · ${surf}</span>`;
       a.addEventListener('click', (ev) => { ev.preventDefault(); goToClimb(h.climb.id); });
-      a.addEventListener('mouseenter', () => setHighlight([h]));
+      a.addEventListener('mouseenter', () => setHighlight([h], HIGHLIGHT_COLOR));
       box.appendChild(a);
     }
     box.addEventListener('mouseleave', () => setHighlight(hits));
@@ -576,7 +616,7 @@
   });
   document.getElementById('min-dist').addEventListener('input', scheduleFetch);
   document.getElementById('max-dist').addEventListener('input', scheduleFetch);
-  document.getElementById('paved-only').addEventListener('change', scheduleFetch);
+  document.getElementById('surface').addEventListener('change', scheduleFetch);
   document.getElementById('bidirectional-only').addEventListener('change', scheduleFetch);
 
   updateGradeSlider();
@@ -585,24 +625,29 @@
     if (activeController) activeController.abort();
     activeController = new AbortController();
 
-    const center = map.getCenter();
-    const corner = map.getBounds().getNorthEast();
-    const radius_m = center.distanceTo(corner);
+    const bounds = map.getBounds();
+    const sw = bounds.getSouthWest();
+    const ne = bounds.getNorthEast();
+    // half-diagonal of the view, sent only to scale the fit-ranking
+    const radius_m = map.getCenter().distanceTo(ne);
 
     const minDistRaw = parseFloat(document.getElementById('min-dist').value);
     const maxDistRaw = parseFloat(document.getElementById('max-dist').value);
     const minGrade = parseFloat(document.getElementById('min-grade').value);
     const maxGrade = parseFloat(document.getElementById('max-grade').value);
+    const surface = document.getElementById('surface').value;
 
     const body = {
-      lat: center.lat,
-      lng: center.lng,
+      min_lat: sw.lat,
+      min_lng: sw.lng,
+      max_lat: ne.lat,
+      max_lng: ne.lng,
       radius_m,
       min_distance_m: (Number.isFinite(minDistRaw) && minDistRaw > 0) ? minDistRaw * 1000 : null,
       max_distance_m: Number.isFinite(maxDistRaw) ? maxDistRaw * 1000 : null,
       min_grade: minGrade > 0 ? minGrade : null,
       max_grade: maxGrade < GRADE_MAX ? maxGrade : null,
-      paved_only: document.getElementById('paved-only').checked,
+      paved: surface === 'all' ? null : surface === 'paved',
       bidirectional_only: document.getElementById('bidirectional-only').checked,
     };
 
@@ -619,8 +664,7 @@
       if (!res.ok) throw new Error('request failed');
       const climbs = await res.json();
       renderClimbs(climbs);
-      statusEl.className = climbs.length ? 'has-list' : '';
-      if (panel.classList.contains('open')) statusEl.classList.add('open');
+      statusEl.className = '';
       statusEl.textContent = climbs.length ? `${climbs.length} climb${climbs.length === 1 ? '' : 's'}` : 'no climbs here';
     } catch (e) {
       if (e.name === 'AbortError') return;
@@ -646,7 +690,7 @@
       maxDist: document.getElementById('max-dist').value,
       minGrade: document.getElementById('min-grade').value,
       maxGrade: document.getElementById('max-grade').value,
-      pavedOnly: document.getElementById('paved-only').checked,
+      surface: document.getElementById('surface').value,
       bidirectionalOnly: document.getElementById('bidirectional-only').checked,
     }));
   }
@@ -656,7 +700,7 @@
     document.getElementById('max-dist').value = s.maxDist;
     document.getElementById('min-grade').value = s.minGrade;
     document.getElementById('max-grade').value = s.maxGrade;
-    document.getElementById('paved-only').checked = s.pavedOnly;
+    document.getElementById('surface').value = s.surface || 'all';
     document.getElementById('bidirectional-only').checked = s.bidirectionalOnly;
     updateGradeSlider();
   }
@@ -675,6 +719,11 @@
   map.on('zoomend', scheduleFetch);
   map.on('moveend', saveMapView);
   map.on('zoomend', saveMapView);
+
+  // the panel sits beside the map (not over it), so the map's visible area —
+  // and thus the bounds sent to /api/explore — shrinks with the panel. keep
+  // Leaflet's size in sync so getBounds() reflects what the user can actually see.
+  window.addEventListener('resize', () => map.invalidateSize());
 
   const savedExplore = (() => {
     try { return JSON.parse(sessionStorage.getItem(EXPLORE_KEY)); } catch { return null; }

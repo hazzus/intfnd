@@ -5,6 +5,7 @@ const INDEX_PAGE: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/temp
 const ABOUT_PAGE: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/templates/about.html"));
 const CLIMB_PAGE: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/templates/climb.html"));
 const EXPLORE_PAGE: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/templates/explore.html"));
+const PREDICTOR_PAGE: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/templates/predictor.html"));
 const ICON: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/templates/resources/icon.png"));
 
 pub async fn index() -> impl IntoResponse {
@@ -25,4 +26,8 @@ pub async fn climb() -> impl IntoResponse {
 
 pub async fn explore() -> impl IntoResponse {
     Html(EXPLORE_PAGE)
+}
+
+pub async fn predictor() -> impl IntoResponse {
+    Html(PREDICTOR_PAGE)
 }

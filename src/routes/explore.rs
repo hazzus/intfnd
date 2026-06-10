@@ -20,15 +20,20 @@ const FIT_WEIGHT: f64 = 30.0;
 
 #[derive(Deserialize)]
 pub struct ExploreRequest {
-    pub lat: f64,
-    pub lng: f64,
+    // viewport bounding box: only climbs starting on screen are returned
+    pub min_lat: f64,
+    pub min_lng: f64,
+    pub max_lat: f64,
+    pub max_lng: f64,
+    // half-diagonal of the view, used only for the fit-ranking scale
     pub radius_m: f64,
     pub min_distance_m: Option<f64>,
     pub max_distance_m: Option<f64>,
     pub min_grade: Option<f64>,
     pub max_grade: Option<f64>,
+    // null = any surface, true = paved only, false = unpaved only
     #[serde(default)]
-    pub paved_only: bool,
+    pub paved: Option<bool>,
     #[serde(default)]
     pub bidirectional_only: bool,
 }
@@ -53,14 +58,16 @@ pub async fn explore(
     Json(req): Json<ExploreRequest>,
 ) -> Response {
     info!(
-        lat = req.lat,
-        lng = req.lng,
+        min_lat = req.min_lat,
+        min_lng = req.min_lng,
+        max_lat = req.max_lat,
+        max_lng = req.max_lng,
         radius_m = req.radius_m,
         min_distance_m = req.min_distance_m,
         max_distance_m = req.max_distance_m,
         min_grade = req.min_grade,
         max_grade = req.max_grade,
-        paved_only = req.paved_only,
+        paved = req.paved,
         bidirectional_only = req.bidirectional_only,
         "explore request"
     );
@@ -68,28 +75,26 @@ pub async fn explore(
     let climbs = match sqlx::query_as::<_, Climb>(
         "SELECT id, name, distance, average_grade, start_lat, start_lng, polyline, surfaces, is_paved, bidirectional, score
          FROM climbs
-         WHERE ST_DWithin(
-             ST_MakePoint(start_lng, start_lat)::geography,
-             ST_MakePoint($1, $2)::geography,
-             $3
-         )
-         AND ($4::float8 IS NULL OR distance >= $4)
-         AND ($5::float8 IS NULL OR distance <= $5)
-         AND ($6::float8 IS NULL OR average_grade >= $6)
-         AND ($7::float8 IS NULL OR average_grade <= $7)
-         AND (NOT $8 OR is_paved = TRUE)
-         AND (NOT $9 OR bidirectional = TRUE)
-         ORDER BY power(ln(distance / $11), 2) * $12 + score ASC
-         LIMIT $10",
+         WHERE start_lat BETWEEN $1 AND $2
+         AND start_lng BETWEEN $3 AND $4
+         AND ($5::float8 IS NULL OR distance >= $5)
+         AND ($6::float8 IS NULL OR distance <= $6)
+         AND ($7::float8 IS NULL OR average_grade >= $7)
+         AND ($8::float8 IS NULL OR average_grade <= $8)
+         AND ($9::bool IS NULL OR is_paved = $9)
+         AND (NOT $10 OR bidirectional = TRUE)
+         ORDER BY power(ln(distance / $12), 2) * $13 + score ASC
+         LIMIT $11",
     )
-    .bind(req.lng)
-    .bind(req.lat)
-    .bind(req.radius_m)
+    .bind(req.min_lat)
+    .bind(req.max_lat)
+    .bind(req.min_lng)
+    .bind(req.max_lng)
     .bind(req.min_distance_m)
     .bind(req.max_distance_m)
     .bind(req.min_grade)
     .bind(req.max_grade)
-    .bind(req.paved_only)
+    .bind(req.paved)
     .bind(req.bidirectional_only)
     .bind(MAX_RESULTS as i64)
     .bind((req.radius_m * TARGET_FRAC).max(1.0))
